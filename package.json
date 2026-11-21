@@ -1,7 +1,7 @@
 {
   "name": "dsh-im-cron",
   "version": "0.1.0",
-  "description": "Scheduled notify / script / agent tasks for IM chats — a DeepSeek Harness (DSH) plugin",
+  "description": "A DeepSeek Harness (DSH) plugin for dsh-im — adds scheduled notify / script / agent tasks to IM chats",
   "keywords": ["dsh", "dsh-plugin", "deepseek-harness", "dsh-im", "scheduled-tasks", "cron"],
   "type": "module",
   "license": "MIT",
