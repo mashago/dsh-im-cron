@@ -13,7 +13,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
 
     const FIELDS = [
-      ['cwd', '工作目录', '默认 = DSH 进程的 cwd；建议填 ~/.dsh/im-cron'],
+      ['cwd', '工作目录', '默认 = 插件状态目录（通常 ~/.dsh/im-cron）'],
       ['agentPreset', 'Agent preset', '默认 = 部署默认 preset（通常是 standard）'],
       ['provider', '模型提供方', '默认 = 部署默认模型路由'],
       ['model', '模型', '默认 = 部署默认模型'],

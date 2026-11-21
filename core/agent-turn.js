@@ -97,7 +97,7 @@ function failure(reason, { error, text = '', task, blocked = false } = {}) {
  *   logger?: object,
  *   now?: () => Date,
  *   subscribe?: ((handler: (session: object, event: object) => void) => (() => void)) | null,
- *   cwd?: string,
+ *   cwd?: string, // explicit override; otherwise the plugin state directory
  *   pollMs?: number,
  * }} deps
  */
@@ -453,7 +453,7 @@ export function createAgentTurn({
   function taskFrom(job) {
     const task = job?.task !== null && typeof job?.task === 'object' ? job.task : {}
     return {
-      cwd: typeof task.cwd === 'string' && task.cwd !== '' ? task.cwd : (cwd ?? process.cwd()),
+      cwd: typeof task.cwd === 'string' && task.cwd !== '' ? task.cwd : (cwd ?? config.stateDir ?? process.cwd()),
       sessionId: task.sessionId,
       agentPreset: task.agentPreset,
       runs: Number.isSafeInteger(task.runs) ? task.runs : 0,

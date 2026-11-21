@@ -352,7 +352,7 @@ Measured deviation: **9–38 ms** across the same batch of tasks (mostly around 
 
 ## The `agent` payload
 
-- One task, one **dedicated task session**: the first run calls `sessionController.create({cwd, agentPreset})` (then `selectModel` when a model route is configured); later runs reuse it via `resolveAgent`.
+- One task, one **dedicated task session**: the first run calls `sessionController.create({cwd, agentPreset})` (then `selectModel` when a model route is configured); later runs reuse it via `resolveAgent`. Its cwd defaults to the plugin state directory (`$DSH_HOME/im-cron`); set `cwd` on the agent-session row to run somewhere else.
 - The session is **not bound to a chat** → the channel never mirrors it → the answer appears **once**, when the plugin sends it. No double push.
 - Turn ownership follows the message id of our `followup`: `turn/start` carries only `{turn}`, a `user/message` matching our id claims it, and `turn/end` for that turn closes it.
 - **Two-stage timeout**: the soft deadline only logs and keeps waiting; only when the hard deadline passes does it `cancel({kind:'user'})` and record `failed/stuck`. A turn that finishes between the two still delivers its real answer.
@@ -551,7 +551,7 @@ Under `npm test` it never writes.
 
 ```bash
 npm install
-npm test          # node --test, 167 cases
+npm test          # node --test, 169 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`,

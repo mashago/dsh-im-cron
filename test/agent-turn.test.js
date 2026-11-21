@@ -123,7 +123,7 @@ function createHarness({ plan, timeoutSeconds = 5, maxConcurrent = 2, permission
     },
     runtime: (options = {}) => createAgentTurn({
       ctx,
-      config: { agent: { enabled: true, timeoutSeconds, maxConcurrent, permissionPreset } },
+      config: { stateDir: '/tmp/imcron-state', agent: { enabled: true, timeoutSeconds, maxConcurrent, permissionPreset } },
       subscribe: (handler) => {
         listeners.add(handler)
         return () => listeners.delete(handler)
@@ -364,6 +364,15 @@ test('agent settings: a changed cwd rebuilds the task session on the next run', 
   assert.equal(second.task.config.cwd, '/tmp/other')
   assert.equal(harness.created.length, 2)
   setAgentSettings({})
+})
+
+test('agent sessions: cwd defaults to the plugin state directory', async () => {
+  const harness = createHarness()
+  const runtime = harness.runtime()
+  const result = await runtime.runTurn(job({ task: { sessionId: undefined, runs: 0 } }), { prompt: 'x' })
+  assert.equal(result.ok, true)
+  assert.equal(harness.created[0].cwd, '/tmp/imcron-state')
+  assert.equal(result.task.config.cwd, '/tmp/imcron-state')
 })
 
 test('agent settings: an unchanged config keeps the same session', async () => {

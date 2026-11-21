@@ -354,7 +354,7 @@ chmod +x ~/.dsh/im-cron/workspace/stock-report.sh
 
 ## `agent` 载荷
 
-- 一条任务一个**任务专用会话**：首跑 `sessionController.create({cwd, agentPreset})`（配了模型路由再 `selectModel`），之后 `resolveAgent` 复用。
+- 一条任务一个**任务专用会话**：首跑 `sessionController.create({cwd, agentPreset})`（配了模型路由再 `selectModel`），之后 `resolveAgent` 复用。cwd 默认是插件状态目录（`$DSH_HOME/im-cron`）；要换目录就在 agent 任务会话设置里填 `cwd`。
 - 会话**不绑定聊天** → 渠道不会镜像它 → 答案只在插件 `send` 时出现**一次**，没有双推。
 - 回合归属靠我们那条 `followup` 的 message id：`turn/start` 只带 `{turn}`，`user/message` 命中我们的 id 才认领，`turn/end` 同 turn 收尾。
 - **两段式超时**：软截止到点只记日志、继续等；硬截止仍未结束才 `cancel({kind:'user'})` 并记 `failed/stuck`。软硬之间完成的回合照常投递真实答案。
@@ -552,7 +552,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。
 
 ```bash
 npm install
-npm test          # node --test，167 个用例
+npm test          # node --test，169 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、
