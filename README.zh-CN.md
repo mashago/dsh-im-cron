@@ -12,7 +12,7 @@
 
 | QQ 里创建并执行一个 `agent` 定时任务 | 在聊天里 `imcron_list` |
 |---|---|
-| <img src="docs/screenshots/qq-scheduled-agent-task.jpg" width="340" alt="QQ 聊天：用户说 1 分钟后用 top 看看 CPU 内存占用，机器人确认排期并在到点后回复报告"> | <img src="docs/screenshots/qq-task-list.jpg" width="340" alt="QQ 聊天：用户说列出定时任务，机器人用表格按 notify / command / agent 列出任务"> |
+| <img src="https://raw.githubusercontent.com/mashago/dsh-im-cron/master/docs/screenshots/qq-scheduled-agent-task.jpg" width="340" alt="QQ 聊天：用户说 1 分钟后用 top 看看 CPU 内存占用，机器人确认排期并在到点后回复报告"> | <img src="https://raw.githubusercontent.com/mashago/dsh-im-cron/master/docs/screenshots/qq-task-list.jpg" width="340" alt="QQ 聊天：用户说列出定时任务，机器人用表格按 notify / command / agent 列出任务"> |
 
 ---
 

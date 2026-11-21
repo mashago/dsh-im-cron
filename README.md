@@ -12,7 +12,7 @@
 
 | A scheduled `agent` task in QQ | `imcron_list` in the chat |
 |---|---|
-| <img src="docs/screenshots/qq-scheduled-agent-task.jpg" width="340" alt="QQ chat: the user asks for a top snapshot in one minute; the bot confirms the schedule and later replies with the report"> | <img src="docs/screenshots/qq-task-list.jpg" width="340" alt="QQ chat: the user asks to list scheduled tasks; the bot answers with a table of tasks grouped by notify / command / agent"> |
+| <img src="https://raw.githubusercontent.com/mashago/dsh-im-cron/master/docs/screenshots/qq-scheduled-agent-task.jpg" width="340" alt="QQ chat: the user asks for a top snapshot in one minute; the bot confirms the schedule and later replies with the report"> | <img src="https://raw.githubusercontent.com/mashago/dsh-im-cron/master/docs/screenshots/qq-task-list.jpg" width="340" alt="QQ chat: the user asks to list scheduled tasks; the bot answers with a table of tasks grouped by notify / command / agent"> |
 
 ---
 

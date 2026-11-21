@@ -5,6 +5,17 @@
   "keywords": ["dsh", "dsh-plugin", "deepseek-harness", "dsh-im", "scheduled-tasks", "cron"],
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mashago/dsh-im-cron.git"
+  },
+  "homepage": "https://github.com/mashago/dsh-im-cron#readme",
+  "bugs": {
+    "url": "https://github.com/mashago/dsh-im-cron/issues"
+  },
+  "engines": {
+    "node": ">=24.9.0"
+  },
   "exports": {
     ".": "./index.js",
     "./tools": "./tools.js",
