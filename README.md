@@ -1,8 +1,23 @@
 # dsh-im-cron
 
-> Scheduled tasks for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) IM chats — ask in the chat, get the result back in the same chat.
+**dsh-im 的配套定时任务插件。** 给 [`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im) 补上「定时」这一层 —— 在聊天里用一句自然语言创建定时任务，到点执行，结果推回**同一个聊天**。
 
-在 IM 聊天里用一句自然语言创建定时任务，到点执行，结果推回**同一个聊天**。
+> It is a companion plugin for dsh-im, not a standalone IM channel.
+
+## ⚠️ 先读这个：它依赖 dsh-im
+
+本插件**不连 QQ、不发消息、不管理会话**。它只做"什么时候跑、跑什么、把结果交给谁"。
+
+| 层 | 谁负责 |
+|---|---|
+| IM 渠道：QQ 连接、会话绑定、主动发送、目标管理 | **dsh-im** |
+| 定时：排期、执行、取结果、记账 | **本插件** |
+
+投递通过 dsh-im 暴露的 `dshIm` 服务（`contractVersion: 1`）完成，本插件**不 import dsh-im 的任何代码**，
+只按服务契约调用 `send` / `describeConversation` / `resolveTarget`。
+
+**没装 dsh-im 时**：任务照样能建、能执行、能记 `runs.jsonl`，但**没有投递通道** ——
+启动日志会显示 `delivery=unavailable`，每次运行的 `deliver.status` 记 `skipped`。
 
 ```text
 你（QQ）：每天早上 9 点提醒我写日报
@@ -19,13 +34,13 @@
 DSH 自带的 `schedule_*` 把定时任务跑在**会话**里，答案是否推回聊天取决于部署开关
 `deliverModelAnswers`（默认关闭）。所以「到点发一句提醒」在原生调度下**默认静默**。
 
-本插件把三件事拆开：
+dsh-im 解决了「怎么把消息发到 QQ」，但没有定时器；本插件补的就是这一层，并把三件事拆开：
 
 | 关心什么 | 谁负责 |
 |---|---|
-| **什么时候跑** | 插件自己的调度器（毫秒级，见[调度精度](#调度精度)） |
+| **什么时候跑** | 本插件的调度器（毫秒级，见[调度精度](#调度精度)） |
 | **在哪跑** | 任务专用会话（`agent` 载荷），不绑定聊天 |
-| **发给谁** | `botId + targetId`，与 session 解耦 → 用户 `/new` 不影响投递 |
+| **发给谁** | dsh-im 的 `botId + targetId`，与 session 解耦 → 用户 `/new` 不影响投递 |
 
 ---
 
@@ -44,24 +59,34 @@ DSH 自带的 `schedule_*` 把定时任务跑在**会话**里，答案是否推�
 
 ## 要求
 
-| 项 | 版本 |
-|---|---|
-| Node.js | `>= 24.9.0`（与 DSH 一致） |
-| DeepSeek Harness | `0.2.2-rc.x` |
-| [`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im) | `5.10.0`（提供投递服务） |
-| 平台 | macOS 已实测；Linux 预期可用但未实测；Windows 分支（`cmd.exe`）仅静态检查 |
+| 项 | 必需 | 版本 |
+|---|---|---|
+| Node.js | ✅ | `>= 24.9.0`（与 DSH 一致） |
+| DeepSeek Harness | ✅ | `0.2.2-rc.x` |
+| **[`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im)** | **✅ 投递必需** | `5.10.0`（已按此版本验过 `dshIm` 契约） |
+| 平台 | — | macOS 已实测；Linux 预期可用但未实测；Windows 分支（`cmd.exe`）仅静态检查 |
 
 ---
 
 ## 安装
 
+**① 先装并配好 dsh-im**（QQ 机器人 + 接收目标），确认它能正常收发消息：
+
 ```bash
-# 从 npm 安装到 profile
+dsh plugin --profile web add @xmanrui/dsh-im
+```
+
+**② 再装本插件**：
+
+```bash
+# 从 npm
 dsh plugin --profile web add dsh-im-cron
 
 # 或指向本地目录 / tarball
 dsh plugin --profile web add /path/to/dsh-im-cron
 ```
+
+两者必须装在**同一个 DSH 实例、同一个 profile** 里 —— 本插件通过 `ctx.get('dshIm')` 找它。
 
 装完确认两行已插入 profile：
 
@@ -435,6 +460,25 @@ examples/            示例配置与演示脚本
 `core/` 全部与渠道无关。
 
 ---
+
+## 与 dsh-im 的契约
+
+本插件只依赖 dsh-im 暴露的**服务方法**，不 import 它的代码、不读它的状态文件：
+
+| 方法 | 用途 |
+|---|---|
+| `send(botId, targetId, text, { format })` | 主动发送，零 session / 零回合 / 零模型 |
+| `describeConversation(sessionId)` | 会话 → `{channel, botId, chatType, chatId, senderId}`（建任务时定位目标） |
+| `describeConversationSync(sessionId)` | 同上，内存快路径；路由守卫和提示作用域用它 |
+| `listTargets(botId)` | 复用已保存的投递目标 |
+| `createTarget(botId, {targetId, name, kind, route})` | 首次建目标（只接受这 4 个键） |
+
+启动时会检查 `contractVersion >= 1`；缺任何一个方法就只禁用投递，插件本身照常加载。
+
+**dsh-im 升级时先看这两件事**：`contractVersion` 有没有变、`send` 的参数形状有没有变。
+适配层集中在 `channel/dsh-im.js` 一个文件里 —— 换渠道或跟进契约变化只改这里。
+
+> 也支持在 profile 里手写两行代替 bundle 安装，见 `examples/config.yml`。
 
 ## 安全模型
 
