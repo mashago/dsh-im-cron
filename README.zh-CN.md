@@ -75,6 +75,7 @@ dsh-im 解决了「怎么把消息发到 QQ」，但没有定时器；本插件�
 |---|---|---|
 | Node.js | ✅ | `>= 24.9.0`（与 DSH 一致） |
 | DeepSeek Harness | ✅ | `0.2.2-rc.x` |
+| pnpm | ✅ | 任意近期版本；`dsh plugin` 会把参数转发给它 |
 | **[`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im)** | **✅ 投递必需** | `5.10.0`（已按此版本验过 `dshIm` 契约） |
 | 平台 | — | macOS 已实测；Linux 预期可用但未实测；Windows 分支（`cmd.exe`）仅静态检查 |
 
@@ -82,21 +83,34 @@ dsh-im 解决了「怎么把消息发到 QQ」，但没有定时器；本插件�
 
 ## 安装
 
-**① 先装并配好 dsh-im**（QQ 机器人 + 接收目标），确认它能正常收发消息：
+**① 确认 pnpm 在 PATH 上**（`dsh plugin` 会把参数转发给 pnpm）：
+
+```bash
+npm install -g pnpm    # 已经能跑 `pnpm --version` 就跳过
+```
+
+**② 先装并配好 dsh-im**（QQ 机器人 + 接收目标），确认它能正常收发消息：
 
 ```bash
 dsh plugin --profile web add @xmanrui/dsh-im
 ```
 
-**② 再装本插件**：
+**③ 再装本插件**：
 
 ```bash
 # 从 npm
 dsh plugin --profile web add dsh-im-cron
 
+# 或直接从仓库装（按安装时的 master 头）
+dsh plugin --profile web add github:mashago/dsh-im-cron
+
 # 或指向本地目录 / tarball
 dsh plugin --profile web add /path/to/dsh-im-cron
 ```
+
+**④ 重启 `dsh web`**，新行才会加载。插件代码是启动时读取的，之后启用/升级插件同样要重启。
+`github:` 安装会锁住当时解析到的 commit，升级要先 `dsh plugin --profile web remove dsh-im-cron`
+再 `add`（直接 `add` 不会刷新 lockfile）。
 
 两者必须装在**同一个 DSH 实例、同一个 profile** 里 —— 本插件通过 `ctx.get('dshIm')` 找它。
 

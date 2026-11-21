@@ -72,6 +72,7 @@ dsh-im solved "how to send a message to QQ" but has no timer. This plugin adds t
 |---|---|---|
 | Node.js | ✅ | `>= 24.9.0` (same as DSH) |
 | DeepSeek Harness | ✅ | `0.2.2-rc.x` |
+| pnpm | ✅ | any recent release; `dsh plugin` forwards its arguments to pnpm |
 | **[`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im)** | **✅ required for delivery** | `5.10.0` (the `dshIm` contract was verified against this version) |
 | Platform | — | macOS tested; Linux expected to work but untested; the Windows branch (`cmd.exe`) is statically checked only |
 
@@ -79,21 +80,35 @@ dsh-im solved "how to send a message to QQ" but has no timer. This plugin adds t
 
 ## Install
 
-**① Install and configure dsh-im first** (QQ bot + a receive target), and confirm it can send and receive:
+**① Make sure pnpm is on PATH** (`dsh plugin` forwards its arguments to pnpm):
+
+```bash
+npm install -g pnpm    # skip when `pnpm --version` already works
+```
+
+**② Install and configure dsh-im first** (QQ bot + a receive target), and confirm it can send and receive:
 
 ```bash
 dsh plugin --profile web add @xmanrui/dsh-im
 ```
 
-**② Then install this plugin**:
+**③ Then install this plugin**:
 
 ```bash
 # from npm
 dsh plugin --profile web add dsh-im-cron
 
-# or point at a local directory / tarball
+# or straight from the repository (tracks master at install time)
+dsh plugin --profile web add github:mashago/dsh-im-cron
+
+# or a local directory / tarball
 dsh plugin --profile web add /path/to/dsh-im-cron
 ```
+
+**④ Restart `dsh web`** so the new rows load. Plugin code is read at startup; enabling a
+plugin or updating it later also needs a restart. A `github:` install pins the commit it
+resolved, so upgrade it with `dsh plugin --profile web remove dsh-im-cron` followed by the
+`add` again (a plain `add` keeps the lockfile).
 
 Both must live in the **same DSH instance and the same profile** — this plugin finds dsh-im via `ctx.get('dshIm')`.
 
