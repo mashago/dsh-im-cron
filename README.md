@@ -1,215 +1,217 @@
 # dsh-im-cron
 
-**dsh-im 的配套定时任务插件。** 给 [`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im) 补上「定时」这一层 —— 在聊天里用一句自然语言创建定时任务，到点执行，结果推回**同一个聊天**。
+**English** | [简体中文](README.zh-CN.md)
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
+
+**Scheduled tasks for [`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im).** It adds the "when" layer to IM chats — create a scheduled task in natural language, let it run on time, and push the result back to **the same chat**.
 
 > It is a companion plugin for dsh-im, not a standalone IM channel.
 
-## ⚠️ 先读这个：它依赖 dsh-im
+## ⚠️ Read this first: it depends on dsh-im
 
-本插件**不连 QQ、不发消息、不管理会话**。它只做"什么时候跑、跑什么、把结果交给谁"。
+This plugin **does not connect to QQ, send messages, or manage sessions**. It only decides *when* to run, *what* to run, and *where the result goes*.
 
-| 层 | 谁负责 |
+| Layer | Owned by |
 |---|---|
-| IM 渠道：QQ 连接、会话绑定、主动发送、目标管理 | **dsh-im** |
-| 定时：排期、执行、取结果、记账 | **本插件** |
+| IM channel: QQ connection, session binding, proactive send, target management | **dsh-im** |
+| Scheduling: schedule, execute, collect the result, keep the books | **this plugin** |
 
-投递通过 dsh-im 暴露的 `dshIm` 服务（`contractVersion: 1`）完成，本插件**不 import dsh-im 的任何代码**，
-只按服务契约调用 `send` / `describeConversation` / `resolveTarget`。
+Delivery goes through the `dshIm` service exposed by dsh-im (`contractVersion: 1`). This plugin **does not import any dsh-im code**; it only calls `send` / `describeConversation` / `resolveTarget` per the service contract.
 
-**没装 dsh-im 时**：任务照样能建、能执行、能记 `runs.jsonl`，但**没有投递通道** ——
-启动日志会显示 `delivery=unavailable`，每次运行的 `deliver.status` 记 `skipped`。
+**Without dsh-im installed**: tasks can still be created, executed, and logged to `runs.jsonl`, but there is **no delivery channel** — the startup log shows `delivery=pending`, and every run records `deliver.status: skipped`.
 
 ```text
-你（QQ）：每天早上 9 点提醒我写日报
-机器人：已建好 imc-98c61823，下次 11-23 09:00
+You (QQ): remind me to write the daily report every morning at 9
+Bot: created imc-98c61823, next run 11-23 09:00
 
-—— 第二天 09:00 ——
-机器人：写日报 ✍️
+—— next day 09:00 ——
+Bot: Daily report ✍️
 ```
 
 ---
 
-## 为什么需要它
+## Why it exists
 
-DSH 自带的 `schedule_*` 把定时任务跑在**会话**里，答案是否推回聊天取决于部署开关
-`deliverModelAnswers`（默认关闭）。所以「到点发一句提醒」在原生调度下**默认静默**。
+DSH's built-in `schedule_*` runs tasks inside a **session**; whether the answer is pushed back to the chat depends on the deployment switch `deliverModelAnswers` (off by default). So "send me a reminder at 9" is **silent by default** under native scheduling.
 
-dsh-im 解决了「怎么把消息发到 QQ」，但没有定时器；本插件补的就是这一层，并把三件事拆开：
+dsh-im solved "how to send a message to QQ" but has no timer. This plugin adds that layer, and splits three concerns apart:
 
-| 关心什么 | 谁负责 |
+| Concern | Owned by |
 |---|---|
-| **什么时候跑** | 本插件的调度器（毫秒级，见[调度精度](#调度精度)） |
-| **在哪跑** | 任务专用会话（`agent` 载荷），不绑定聊天 |
-| **发给谁** | dsh-im 的 `botId + targetId`，与 session 解耦 → 用户 `/new` 不影响投递 |
+| **When it runs** | this plugin's scheduler (millisecond precision, see [Scheduling precision](#scheduling-precision)) |
+| **Where it runs** | a dedicated task session (`agent` payload), not bound to the chat |
+| **Who receives it** | dsh-im's `botId + targetId`, decoupled from the session → a user `/new` does not affect delivery |
 
 ---
 
-## 三种载荷
+## Three payloads
 
-| 载荷 | 到点做什么 | 模型成本 |
+| Payload | What happens on the deadline | Model cost |
 |---|---|---|
-| `notify` | 发一条固定文本 | **0** |
-| `command` | spawn 一个脚本，stdout 回推 | **0** |
-| `agent` | 在任务专用会话里跑**一个** agent 回合，答案回推 | 1 回合 |
+| `notify` | send a fixed piece of text | **0** |
+| `command` | spawn a script, push stdout back | **0** |
+| `agent` | run **one** agent turn in a dedicated task session, push the answer back | 1 turn |
 
-`notify` / `command` 全程不经过模型 —— 没有"让模型在宿主上执行任意命令"的通道。
-`agent` 只有**执行**经过一次模型，**投递**仍然零模型。
+`notify` / `command` never touch a model — there is no "let the model run arbitrary commands on the host" path.
+`agent` uses a model for **execution** only; **delivery** is still model-free.
 
 ---
 
-## 要求
+## Requirements
 
-| 项 | 必需 | 版本 |
+| Item | Required | Version |
 |---|---|---|
-| Node.js | ✅ | `>= 24.9.0`（与 DSH 一致） |
+| Node.js | ✅ | `>= 24.9.0` (same as DSH) |
 | DeepSeek Harness | ✅ | `0.2.2-rc.x` |
-| **[`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im)** | **✅ 投递必需** | `5.10.0`（已按此版本验过 `dshIm` 契约） |
-| 平台 | — | macOS 已实测；Linux 预期可用但未实测；Windows 分支（`cmd.exe`）仅静态检查 |
+| **[`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im)** | **✅ required for delivery** | `5.10.0` (the `dshIm` contract was verified against this version) |
+| Platform | — | macOS tested; Linux expected to work but untested; the Windows branch (`cmd.exe`) is statically checked only |
 
 ---
 
-## 安装
+## Install
 
-**① 先装并配好 dsh-im**（QQ 机器人 + 接收目标），确认它能正常收发消息：
+**① Install and configure dsh-im first** (QQ bot + a receive target), and confirm it can send and receive:
 
 ```bash
 dsh plugin --profile web add @xmanrui/dsh-im
 ```
 
-**② 再装本插件**：
+**② Then install this plugin**:
 
 ```bash
-# 从 npm
+# from npm
 dsh plugin --profile web add dsh-im-cron
 
-# 或指向本地目录 / tarball
+# or point at a local directory / tarball
 dsh plugin --profile web add /path/to/dsh-im-cron
 ```
 
-两者必须装在**同一个 DSH 实例、同一个 profile** 里 —— 本插件通过 `ctx.get('dshIm')` 找它。
+Both must live in the **same DSH instance and the same profile** — this plugin finds dsh-im via `ctx.get('dshIm')`.
 
-装完确认两行已插入 profile：
+Confirm the rows were inserted into the profile:
 
 ```bash
 dsh --profile web --dump-config | grep im-cron
 ```
 
-启动日志应出现：
+The startup log should show:
 
 ```text
 [im-cron] delivery=dshIm agent=on jobs=N stateDir=~/.dsh/im-cron
 ```
 
-`delivery=unavailable` 表示没探测到 dsh-im：`notify` / `command` 仍会执行，只是不投递。
+`delivery=pending` means dsh-im was not detected at startup (it is probed again on every use): `notify` / `command` still run, they just don't deliver.
 
-> **主插件配置（`im-cron` 行：`timezone`、`scriptDir`、`activeHours`、`jobs` 等）改后需要重启 DSH**，
-> 它在启动时读取。插件页里的「agent 任务会话」设置是例外：保存后下一次 agent 任务执行即生效。
+> **Changes to the main plugin config (the `im-cron` row: `timezone`, `scriptDir`, `activeHours`, `jobs`, …) need a DSH restart**,
+> because it is read at startup. The "agent task session" settings on the Plugins page are the exception:
+> they take effect on the next agent run after saving.
 
 ---
 
-## 快速开始
+## Quick start
 
-在聊天里说：
+Say this in the chat:
 
-| 你说 | 建的载荷 |
+| You say | Payload created |
 |---|---|
-| 「1 分钟后提醒我开会」 | `notify` + `at` |
-| 「每天早上 9 点提醒我写日报」 | `notify` + `cron` |
-| 「1 分钟后跑 stock-report.sh，跑完告诉我」 | `command` + `at` |
-| 「每天 15:30 跑收盘脚本，不用通知我」 | `command` + `cron` + `notify:never` |
-| 「每天 9 点帮我汇总财经新闻」 | `agent` + `cron` |
-| 「每 2 分钟查一次进程，跑 3 次就停」 | `agent` + `every{minute,2}` + `maxRuns:3` |
+| "remind me about the meeting in 1 minute" | `notify` + `at` |
+| "remind me to write the daily report every morning at 9" | `notify` + `cron` |
+| "run stock-report.sh in 1 minute and tell me when it's done" | `command` + `at` |
+| "run the closing script at 15:30 every day, no notification" | `command` + `cron` + `notify:never` |
+| "summarize the financial news at 9 every day" | `agent` + `cron` |
+| "check the processes every 2 minutes, stop after 3 runs" | `agent` + `every{minute,2}` + `maxRuns:3` |
 
-脚本载荷需要先把脚本放进[脚本目录](#脚本载荷)。
+Script payloads need the script placed in the [script directory](#script-payload) first.
 
 ---
 
-## 工具
+## Tools
 
-9 个工具，全部在全局行 `im-cron-tools` 注册，任何 agent 都能看到。
+Nine tools, all registered on the global row `im-cron-tools` and visible to any agent.
 
-| 工具 | 作用 | 关键参数 |
+| Tool | Purpose | Key arguments |
 |---|---|---|
-| `imcron_remind` | 到点发固定文本 | `text`、`at`/`cron`/`every`、`timezone?`、`maxRuns?` |
-| `imcron_run` | 到点 spawn 脚本 | `script`、`timeoutSeconds?`、排期、`notify?`、`maxRuns?` |
-| `imcron_ask` | 到点跑一回合 | `prompt`、排期、`notify?`（`always`/`never`）、`timeoutSeconds?`、`maxRuns?` |
-| `imcron_list` | 本聊天的任务、下次运行、上次结果 | — |
-| `imcron_update` | 改排期 / 文案 / `notify` / `maxRuns` | `id` + 上述字段 |
-| `imcron_remove` | 删任务（**不删投递目标**） | `id` |
-| `imcron_pause` / `imcron_resume` | 暂停 / 恢复 | `id` |
-| `imcron_trigger` | 立即执行一次，不改排期与水位 | `id` |
+| `imcron_remind` | send a fixed text on schedule | `text`, `at`/`cron`/`every`, `timezone?`, `maxRuns?` |
+| `imcron_run` | spawn a script on schedule | `script`, `timeoutSeconds?`, schedule, `notify?`, `maxRuns?` |
+| `imcron_ask` | run one turn on schedule | `prompt`, schedule, `notify?` (`always`/`never`), `timeoutSeconds?`, `maxRuns?` |
+| `imcron_list` | this chat's tasks, next run, last result | — |
+| `imcron_update` | change schedule / text / `notify` / `maxRuns` | `id` + the fields above |
+| `imcron_remove` | delete a task (**does not delete the delivery target**) | `id` |
+| `imcron_pause` / `imcron_resume` | pause / resume | `id` |
+| `imcron_trigger` | run once immediately, without changing the schedule or water mark | `id` |
 
-行为约定：
+Behavior notes:
 
-- 创建工具返回 `{ id, nextRunAt, next3 }`；`next3` 让用户当场确认"是不是这个点"。
-- `imcron_update` 只改排期 / 文案 / `notify` / `maxRuns`；**载荷类型和目标不可改**，要换就删了重建。
-- 改排期会**重新锚定**，旧排期的槽不会再触发。
-- `imcron_list` **不返回 `sessionId`**（对"我有哪些任务"没用，还会被念成噪音）。任务会话 id 只在 CLI `--verbose` 和 `runs.jsonl` 里。
-- 目标隔离：模型**不能**指定 bot 或聊天，只能从当前会话反查；管理工具看不到别的聊天的任务（别人的 id 与"不存在"返回同一个错误）。
-- `imcron_list` 区分三态：**启用** / **暂停** / **已结束**。
+- Creation tools return `{ id, nextRunAt, next3 }`; `next3` lets the user confirm "is it really this time" on the spot.
+- `imcron_update` only changes schedule / text / `notify` / `maxRuns`; **payload type and target cannot be changed** — delete and recreate to switch.
+- Changing the schedule **re-anchors** it; slots from the old schedule never fire.
+- `imcron_list` **does not return `sessionId`** (useless for "which tasks do I have", and models read it out as noise). The task session id only appears in CLI `--verbose` and `runs.jsonl`.
+- Target isolation: the model **cannot** name a bot or a chat; the target is looked up from the current session. Management tools cannot see tasks of another chat (someone else's id and "does not exist" return the same error).
+- `imcron_list` distinguishes three states: **enabled** / **paused** / **finished**.
 
-### 原生 `schedule_*` 在 IM 会话里被禁用
+### Native `schedule_*` is disabled in IM sessions
 
-三层，只有最后一层是强制的：
+Three layers; only the last one is mandatory:
 
-| 层 | 机制 |
+| Layer | Mechanism |
 |---|---|
-| 提示层 | 系统提示段 `tool:imcron`（**只对 IM 会话生效**，按会话 id 过滤） |
-| 可见层 | `agent/created` → `tools.restrict({deny:['schedule_create','schedule_edit','schedule_list','schedule_view']})` |
-| **执行层** | `tools/execute` 守卫命中即返回 `isError`，工具体不执行 |
+| Prompt layer | system prompt section `tool:imcron` (**IM sessions only**, filtered by session id) |
+| Visibility layer | `agent/created` → `tools.restrict({deny:['schedule_create','schedule_edit','schedule_list','schedule_view']})` |
+| **Execution layer** | the `tools/execute` guard returns `isError` on a hit; the tool body never runs |
 
-原因：原生定时任务的回答默认不推送，而模型实测会优先点它。
-**Web / 桌面会话完全不受影响**，`schedule_*` 在那里照常可用。
+Reason: native scheduled answers are not pushed by default, and in practice the model reaches for them first.
+**Web / desktop sessions are untouched**; `schedule_*` works there as usual.
 
 ---
 
-## 时间表达式
+## Time expressions
 
-三种，**互斥**，按语义选：
+Three kinds, **mutually exclusive**; pick by semantics:
 
 ```jsonc
-// 一次性
+// one-shot
 { "at": "2026-11-21T09:00:00+08:00" }
 { "at": { "date": "2026-11-21", "time": "09:00", "timezone": "Asia/Shanghai" } }
 
-// 墙上时钟规律（5 段）
-{ "cron": "0 9 * * 1-5", "timezone": "Asia/Shanghai" }   // 工作日 9 点
-{ "cron": "0 9,18 * * *" }                               // 每天 9 点和 18 点
-{ "cron": "0 9 1 * *" }                                  // 每月 1 号
-{ "cron": "0 9 L * *" }                                  // 每月最后一天
+// wall-clock rules (5 fields)
+{ "cron": "0 9 * * 1-5", "timezone": "Asia/Shanghai" }   // weekdays at 9
+{ "cron": "0 9,18 * * *" }                               // every day at 9 and 18
+{ "cron": "0 9 1 * *" }                                  // the 1st of every month
+{ "cron": "0 9 L * *" }                                  // the last day of every month
 
-// 间隔
-{ "every": { "unit": "minute", "count": 90 } }                            // 每 90 分钟
-{ "every": { "unit": "hour", "count": 3 } }                               // 从现在起每 3 小时
+// intervals
+{ "every": { "unit": "minute", "count": 90 } }                            // every 90 minutes
+{ "every": { "unit": "hour", "count": 3 } }                               // every 3 hours from now
 { "every": { "unit": "day", "count": 15, "at": "06:00", "timezone": "Asia/Shanghai" } }
 { "every": { "unit": "week", "count": 2, "at": "10:00", "timezone": "Asia/Shanghai" } }
 ```
 
-选哪个：
+Which one:
 
-| 用户说的 | 用 |
+| The user says | Use |
 |---|---|
-| 某个时刻 / 某一天 | `at` |
-| 工作日、一天多个时刻、每月某天、某个月 | **`cron`**（`every` 表达不了） |
-| 每 N 分钟 / 小时 / 天 / 周 | `every` |
+| a specific instant / a specific day | `at` |
+| weekdays, several times a day, a day of the month, a month | **`cron`** (`every` cannot express these) |
+| every N minutes / hours / days / weeks | `every` |
 
-规则：
+Rules:
 
-- `cron` 只接受 5 段；拒绝秒字段、宏（`@daily`）、"值 + 步长"（`0/15`）；支持 `L`（月末）。
-- `cron` 写**本地墙上时间**，不要先换算成 UTC。
-- `*/15` 是「每月 1、16、31 号」，**不是**「每隔 15 天」。要后者用 `every{day,15}`。
-- `every` 的 `minute` / `hour` 是**瞬时制**：锚定创建时的整分，纯算术推进，跨 DST 间隔不变。
-- `every` 的 `day` / `week` 按**本地日历**推进：跨 DST 保持墙上时间，缺口顺延、重叠取较早。
-- `at` 必须严格未来；落在 DST 缺口的时刻直接拒绝。
+- `cron` accepts exactly 5 fields; it rejects a seconds field, macros (`@daily`), and "value + step" (`0/15`); it supports `L` (last day of month).
+- `cron` takes **local wall-clock time**; do not convert to UTC first.
+- `*/15` means "the 1st, 16th and 31st of each month", **not** "every 15 days". Use `every{day,15}` for that.
+- `every` with `minute` / `hour` is **instant-based**: anchored to the whole minute at creation, advanced arithmetically, so the interval is unchanged across DST.
+- `every` with `day` / `week` follows the **local calendar**: wall-clock time is preserved across DST; a gap moves forward, an overlap takes the earlier instant.
+- `at` must be strictly in the future; an instant that falls in a DST gap is rejected.
 
-> **首次触发的锚点**
-> `every{day|week, at}` 从**第一个未来的 `at` 时刻**开始 —— 下午建的「每 15 天早上 6 点」
-> 首次在**明天** 06:00，不是 15 天后。`minute` / `hour` 从创建时刻的整分起算。
-> 创建时返回的 `next3` 就是用来核对这件事的。
+> **Anchor of the first run**
+> `every{day|week, at}` starts from the **first future `at` instant** — a "every 15 days at 6am" task
+> created in the afternoon first runs **tomorrow** at 06:00, not 15 days later. `minute` / `hour` count
+> from the whole minute at creation. The `next3` returned at creation is there to check exactly this.
 
 ---
 
-## 配置
+## Configuration
 
 ```yaml
 - insert:
@@ -223,152 +225,152 @@ dsh --profile web --dump-config | grep im-cron
           enabled: true
           timeoutSeconds: 900
           permissionPreset: danger-full-access
-        # 运维声明的任务（不经模型）
+        # operator-declared tasks (no model involved)
         jobs:
           - id: decl-close
-            name: 收盘行情
+            name: closing prices
             schedule: { cron: '30 15 * * 1-5', timezone: Asia/Shanghai }
             payload: { kind: command, script: stock-report.sh }
             deliver: always
             target: { botId: qq_xxxxxxxxxxxxxxxx, targetId: cron-0123456789ab }
 ```
 
-| 键 | 默认 | 说明 |
+| Key | Default | Description |
 |---|---|---|
-| `channel` | `dshIm` | 渠道标识（当前仅 dsh-im） |
-| `requireChannel` | `true` | 探测不到 dsh-im 时拒绝创建需要投递的任务 |
-| `stateDir` | `$DSH_HOME/im-cron` | 状态目录 |
-| `scriptDir` | `<stateDir>/workspace` | 脚本目录，见[脚本载荷](#脚本载荷)。**插件不创建它** |
-| `timezone` | 宿主时区 | 排期解析 / 展示的默认时区 |
-| `pollSeconds` | `30` | **兜底扫描**间隔（不是触发精度，见[调度精度](#调度精度)） |
-| `activeHours` | 空（全天） | 执行时间窗 `{start, end, timezone?}` |
-| `catchUp` | `none` | 停机期间错过的时间槽：`none` 跳过 / `once` 补一次 |
-| `defaultTimeoutSeconds` | `600` | 脚本默认超时 |
-| `endedRetentionHours` | `24` | 一次性任务结束后保留多久；`0` = 不清理 |
-| `maxNotifyChars` | `2000` | 提醒文本上限（创建时校验） |
-| `maxJobs` / `maxJobsPerTarget` | `500` / `50` | 任务容量上限 |
-| `allowChannels` | `['qq']` | 允许创建任务的渠道 |
-| `allowGroup` | `true` | 是否允许群聊建任务（**群聊里脚本载荷一律禁用**） |
-| `jobs` | `[]` | 声明式任务，启动时按 id upsert（保留既有水位） |
-| `agent.enabled` | `true` | 探测不到 `sessionController` 时自动只禁用 `agent` 载荷 |
-| `agent.timeoutSeconds` | `900` | agent 回合的**软截止** |
-| `agent.stuckGraceSeconds` | 空（软截止 × 2） | agent 回合的**硬截止** |
-| `agent.maxConcurrent` | `2` | 同时运行的 agent 回合上限 |
-| `agent.permissionPreset` | 空 | 任务会话的权限档，见[权限档](#权限档) |
-| `agent.taskSessionMaxAgeDays` | `30` | 任务会话超过这个天数换新 |
-| `agent.attachWorkspace` | `false` | 任务会话是否挂进 workspace |
-| `agent.echoToChat` | `false` | 跑完是否把摘要 inject 回聊天会话 |
+| `channel` | `dshIm` | channel id (only dsh-im today) |
+| `requireChannel` | `true` | refuse to create tasks that need delivery when dsh-im is missing |
+| `stateDir` | `$DSH_HOME/im-cron` | state directory |
+| `scriptDir` | `<stateDir>/workspace` | script directory, see [Script payload](#script-payload). **The plugin does not create it** |
+| `timezone` | host time zone | default zone for parsing / displaying schedules |
+| `pollSeconds` | `30` | **fallback sweep** interval (not trigger precision, see [Scheduling precision](#scheduling-precision)) |
+| `activeHours` | empty (all day) | execution window `{start, end, timezone?}` |
+| `catchUp` | `none` | missed slots while down: `none` skip / `once` catch up once |
+| `defaultTimeoutSeconds` | `600` | default script timeout |
+| `endedRetentionHours` | `24` | how long a finished one-shot task is kept; `0` = never clean up |
+| `maxNotifyChars` | `2000` | reminder text limit (checked at creation) |
+| `maxJobs` / `maxJobsPerTarget` | `500` / `50` | task count caps |
+| `allowChannels` | `['qq']` | channels allowed to create tasks |
+| `allowGroup` | `true` | allow creating tasks in group chats (**script payloads are always disabled in groups**) |
+| `jobs` | `[]` | declarative tasks, upserted by id at startup (existing water marks are kept) |
+| `agent.enabled` | `true` | only the `agent` payload is disabled when `sessionController` is missing |
+| `agent.timeoutSeconds` | `900` | **soft deadline** of an agent turn |
+| `agent.stuckGraceSeconds` | empty (soft × 2) | **hard deadline** of an agent turn |
+| `agent.maxConcurrent` | `2` | cap on concurrently running agent turns |
+| `agent.permissionPreset` | empty | permission preset for task sessions, see [Permission preset](#permission-preset) |
+| `agent.taskSessionMaxAgeDays` | `30` | rotate a task session older than this |
+| `agent.attachWorkspace` | `false` | whether task sessions join a workspace |
+| `agent.echoToChat` | `false` | whether the digest is injected back into the chat session |
 
-`activeHours` 细节：
+`activeHours` details:
 
-- 窗口外的槽**直接跳过、不补跑**（提醒错过窗口就是过期信息）。
-- `end` 可写 `24:00`；`start > end` 表示跨夜（如 `22:00`–`06:00`）。
-- `start === end` 等于**关闭所有槽**。
-- 时区非法时只 warn 并**不限制**，不会静默吞掉所有任务。
+- Slots outside the window are **skipped, never caught up** (a reminder past its window is stale information).
+- `end` may be `24:00`; `start > end` means overnight (e.g. `22:00`–`06:00`).
+- `start === end` means **all slots are off**.
+- An invalid zone only warns and **does not restrict**; it never silently swallows every task.
 
 ---
 
-## 脚本载荷
+## Script payload
 
-`imcron_run` 只接受**一个已存在的可执行文件**，不接受 shell 字符串。
+`imcron_run` accepts **one existing executable file**, never a shell string.
 
 ```bash
 mkdir -p ~/.dsh/im-cron/workspace
 cat > ~/.dsh/im-cron/workspace/stock-report.sh <<'EOF'
 #!/bin/sh
-echo "报告生成于 $(date '+%F %T %Z')"
+echo "report generated at $(date '+%F %T %Z')"
 EOF
 chmod +x ~/.dsh/im-cron/workspace/stock-report.sh
 ```
 
-脚本必须满足三条：
+A script must satisfy three conditions:
 
-1. 位于 `scriptDir` 内（相对名或绝对路径都行，**解析后必须仍在目录内**）
-2. 是普通文件
-3. 有执行权限，且首行有 shebang
+1. it lives inside `scriptDir` (relative or absolute name; **it must still resolve inside after resolution**)
+2. it is a regular file
+3. it has the execute bit and a shebang on the first line
 
-拒绝的四种情况：
+Rejected cases:
 
-| 错误码 | 触发条件 |
+| Error code | Triggered when |
 |---|---|
-| `script-dir-missing` | `scriptDir` 不存在 |
-| `script-not-found` | 文件不存在 |
-| `script-outside-dir` | `realpath` 解析后跑出目录（含 `../` 与符号链接） |
-| `script-not-executable` | 没有执行权限 |
-| `command-not-allowed-in-group` | 在群聊里创建脚本任务 |
+| `script-dir-missing` | `scriptDir` does not exist |
+| `script-not-found` | the file does not exist |
+| `script-outside-dir` | `realpath` resolution escapes the directory (including `../` and symlinks) |
+| `script-not-executable` | no execute permission |
+| `command-not-allowed-in-group` | creating a script task in a group chat |
 
-运行约定：
+Run conventions:
 
-| 项 | 值 |
+| Item | Value |
 |---|---|
 | cwd | `scriptDir` |
-| 环境变量 | `IMCRON_JOB`、`IMCRON_OCCURRENCE` |
-| 超时 | 任务 `timeoutSeconds`，否则 `defaultTimeoutSeconds` |
-| 成功判定 | exit 0 |
-| 投递内容 | stdout；stdout 为空则 stderr；失败时带 exit 码 + stderr 尾部 15 行 |
+| Environment | `IMCRON_JOB`, `IMCRON_OCCURRENCE` |
+| Timeout | the task's `timeoutSeconds`, else `defaultTimeoutSeconds` |
+| Success | exit 0 |
+| Delivered content | stdout; stderr when stdout is empty; on failure the exit code + the last 15 lines of stderr |
 
 ---
 
-## 投递策略
+## Delivery policy
 
-三态：
+Three states:
 
-| `deliver` | 成功 | 失败 |
+| `deliver` | Success | Failure |
 |---|---|---|
-| `always` | 发结果；结果为空则发 `✅ <任务> 完成（无输出）` | 发 `⚠️ <任务> failed` + 摘要 |
-| `on-failure` | 不发 | 同上 |
-| `never` | 不发 | 不发（只写 `runs.jsonl`） |
+| `always` | send the result; when empty send `✅ <task> finished (no output)` | send `⚠️ <task> failed` + digest |
+| `on-failure` | send nothing | same as above |
+| `never` | send nothing | send nothing (only `runs.jsonl`) |
 
-默认值：`notify` → `always`，`command` → `on-failure`，`agent` → `always`。
+Defaults: `notify` → `always`, `command` → `on-failure`, `agent` → `always`.
 
-**错误策略**（dsh-im 不返回 `retryable`，下表就是判定依据）：
+**Error policy** (dsh-im has no `retryable`; the table below is the decision basis):
 
-| 错误码 | 处理 |
+| Error code | Handling |
 |---|---|
-| `bot-not-connected`、`cancelled`、服务未就绪 | 留 `pending`，退避重试 |
-| `delivery-failed` / `send-result-unknown` | **不重试**（markdown 分片可能"已发出、结果未知"，重发就是重复消息），最多换纯文本再发一次 |
-| `unknown-bot` / `unknown-target` | 任务标 `needs-rebind`，告警一次 |
-| `invalid-target` / `bad-request` / `capability-unavailable` 等 | 记 `failed`，不重试 |
+| `bot-not-connected`, `cancelled`, service not ready | keep `pending`, retry with backoff |
+| `delivery-failed` / `send-result-unknown` | **do not retry** (a markdown chunk may have been sent with unknown result; resending duplicates the message); at most retry once as plain text |
+| `unknown-bot` / `unknown-target` | mark the task `needs-rebind`, warn once |
+| `invalid-target` / `bad-request` / `capability-unavailable`, etc. | record `failed`, no retry |
 
 ---
 
-## 调度精度
+## Scheduling precision
 
-两级机制：
+Two levels:
 
-| 机制 | 作用 | 精度 |
+| Mechanism | Role | Precision |
 |---|---|---|
-| **截止点定时器** | 指向所有可运行任务里最近的 `nextDue`，到点直接触发 | 毫秒级 |
-| **兜底扫描**（`pollSeconds`） | 笔记本休眠、系统时间跳变、定时器失效时补跑 | ≤ `pollSeconds` |
+| **Deadline timer** | points at the nearest `nextDue` among runnable tasks and fires directly | milliseconds |
+| **Fallback sweep** (`pollSeconds`) | catches up after laptop sleep, clock jumps, or a dead timer | ≤ `pollSeconds` |
 
-**定时器是优化，扫描是保证** —— 前者失效只是退化成轮询，不会丢任务。
-超过 6 小时的等待会分片重算（`setTimeout` 溢出保护），顺带处理 DST。
+**The timer is an optimization, the sweep is the guarantee** — a failed timer only degrades to polling, it never loses a task.
+Waits longer than 6 hours are recomputed in slices (`setTimeout` overflow protection), which also handles DST.
 
-实测偏差：同一批任务 **9–38 ms**（多数 10 ms 量级）。
+Measured deviation: **9–38 ms** across the same batch of tasks (mostly around 10 ms).
 
 ---
 
-## `agent` 载荷
+## The `agent` payload
 
-- 一条任务一个**任务专用会话**：首跑 `sessionController.create({cwd, agentPreset})`（配了模型路由再 `selectModel`），之后 `resolveAgent` 复用。
-- 会话**不绑定聊天** → 渠道不会镜像它 → 答案只在插件 `send` 时出现**一次**，没有双推。
-- 回合归属靠我们那条 `followup` 的 message id：`turn/start` 只带 `{turn}`，`user/message` 命中我们的 id 才认领，`turn/end` 同 turn 收尾。
-- **两段式超时**：软截止到点只记日志、继续等；硬截止仍未结束才 `cancel({kind:'user'})` 并记 `failed/stuck`。软硬之间完成的回合照常投递真实答案。
-- 并发：`agent.maxConcurrent`，等待超过 `2 × pollSeconds` 记 `skipped: busy`；同一任务上一轮没结束则 `skipped: running`。
-- 自愈：`session/not-found` → 重建；`turn/end` 为 `blocked`（会话被归档）→ 丢会话、下一轮重建。
-- 会话标题写成 `⏰ <任务名>`，可在侧栏找到（用户手动改过的标题不会被覆盖）。
+- One task, one **dedicated task session**: the first run calls `sessionController.create({cwd, agentPreset})` (then `selectModel` when a model route is configured); later runs reuse it via `resolveAgent`.
+- The session is **not bound to a chat** → the channel never mirrors it → the answer appears **once**, when the plugin sends it. No double push.
+- Turn ownership follows the message id of our `followup`: `turn/start` carries only `{turn}`, a `user/message` matching our id claims it, and `turn/end` for that turn closes it.
+- **Two-stage timeout**: the soft deadline only logs and keeps waiting; only when the hard deadline passes does it `cancel({kind:'user'})` and record `failed/stuck`. A turn that finishes between the two still delivers its real answer.
+- Concurrency: `agent.maxConcurrent`; waiting longer than `2 × pollSeconds` records `skipped: busy`; if the previous run of the same task is still going, it records `skipped: running`.
+- Self-healing: `session/not-found` → recreate; `turn/end` with `blocked` (session archived) → drop the session, recreate next run.
+- The session title is `⏰ <task name>` so it is findable in the sidebar (a title the user set by hand is never overwritten).
 
-### 权限档
+### Permission preset
 
-`agent.permissionPreset` 只作用于**任务会话**（写该会话自己的日志），不影响聊天或 Web 会话。
+`agent.permissionPreset` applies to **task sessions only** (it writes that session's own log); it does not affect chat or Web sessions.
 
-| 值 | sandbox | approval | 后果 |
+| Value | sandbox | approval | Consequence |
 |---|---|---|---|
-| 留空 | 部署默认（`workspace-write` + `ask`） | | 需要审批的调用会**挂到超时**（见[已知限制](#已知限制)） |
-| `workspace-write` | 工作区内可写 | `ask` | 同上 |
-| `danger-full-access` | 全开 | `never` | 无沙箱、不审批；`ps` / `top` 等 setuid 程序可执行 |
+| empty | deployment default (`workspace-write` + `ask`) | | calls that need approval **hang until the timeout** (see [Known limitations](#known-limitations)) |
+| `workspace-write` | writable inside the workspace | `ask` | same as above |
+| `danger-full-access` | fully open | `never` | no sandbox, no approval; setuid programs such as `ps` / `top` can run |
 
-等价的手写配置：
+Equivalent manual config:
 
 ```yaml
 - id: im-cron-agent
@@ -381,181 +383,182 @@ chmod +x ~/.dsh/im-cron/workspace/stock-report.sh
     permissionPreset: danger-full-access
 ```
 
-也可以在 **Web → 插件 → dsh-im-cron → agent 任务会话** 里改。**保存后下一次 agent 任务执行即生效**
-（字段是 Loader 的 volatile 配置，`agent-turn.js` 每轮重新读取；改动会触发该任务重建会话）。
-通知 / 脚本载荷不受这些设置影响。
+You can also change it in **Web → Plugins → dsh-im-cron → agent task session**. **It takes effect on the next agent run after saving**
+(the fields are Loader-volatile, and `agent-turn.js` re-reads them on every run; a change rebuilds that task's session).
+Notify / script payloads are unaffected by these settings.
 
 ---
 
-## 执行次数上限
+## Execution cap
 
-建任务时可选 `maxRuns`（1–10000）：跑满 N 次后自动标记结束。
+`maxRuns` (1–10000) can be set at creation: after N runs the task is marked finished automatically.
 
-- **只计计划执行**：`imcron_trigger` 手工触发不消耗次数
-- 被中断的执行（进程重启）**计入**次数
-- `imcron_update` 改 `maxRuns` 会把计数重置为 0
-- `imcron_list` 显示进度：`已跑 2/3`
+- **Only scheduled runs count**: a manual `imcron_trigger` does not consume the budget
+- An interrupted run (process restart) **does** count
+- `imcron_update` resets the counter to 0 when it changes `maxRuns`
+- `imcron_list` shows progress: `ran 2/3`
 
 ---
 
 ## CLI
 
 ```bash
-node cli.js doctor                       # 状态目录、任务计数、脚本目录、最后一条运行
-node cli.js list [--verbose]             # 任务、下次运行、上次结果（--verbose 带 sessionId）
-node cli.js run <id> [--config cfg.json]  # 立即执行一次（CLI 无通道，投递记 skipped）
-node cli.js log [--job <id>] [-n 50]     # runs.jsonl 尾部
+node cli.js doctor                       # state dir, task counts, script dir, last run
+node cli.js list [--verbose]             # tasks, next run, last result (--verbose adds sessionId)
+node cli.js run <id> [--config cfg.json]  # run once now (the CLI has no channel, so delivery is skipped)
+node cli.js log [--job <id>] [-n 50]     # tail of runs.jsonl
 ```
 
-通用参数 `--state-dir DIR`（默认 `$DSH_HOME/im-cron`）。
+Common flag `--state-dir DIR` (default `$DSH_HOME/im-cron`).
 
 ---
 
-## 状态与文件
+## State and files
 
 ```
 $DSH_HOME/im-cron/
   state.json              { version: 1, jobs: [...] }
-  state.json.bak          上一次写入前的副本
-  runs.jsonl              运行记录，一行一条
-  workspace/              脚本目录（默认值，需手动创建）
+  state.json.bak          copy from before the previous write
+  runs.jsonl              run records, one per line
+  workspace/              script directory (default; created by hand)
 ```
 
-- 写入是 `tmp → fsync → rename`。
-- `state.json` 损坏时复制成 `state.json.corrupt-<时间戳>`，**按空状态启动**，DSH 不受影响。
-- `runs.jsonl` 字段：`at`、`jobId`、`mode`、`occurrence`、`trigger`、`durationMs`、`result{kind,exit?,reason?}`、`deliver{status,attempts?,error?}`、`sessionId?`、`turn?`、`textTail?`。
+- Writes are `tmp → fsync → rename`.
+- A corrupt `state.json` is copied to `state.json.corrupt-<timestamp>` and the plugin **starts empty**; DSH is unaffected.
+- `runs.jsonl` fields: `at`, `jobId`, `mode`, `occurrence`, `trigger`, `durationMs`, `result{kind,exit?,reason?}`, `deliver{status,attempts?,error?}`, `sessionId?`, `turn?`, `textTail?`.
 
-### 幂等
+### Idempotency
 
-对任意 `(jobId, occurrence)`，**磁盘状态只允许启动一次执行**：
+For any `(jobId, occurrence)`, **the on-disk state allows exactly one execution to start**:
 
-1. 执行前把占位（`lastFiredFor` + `endedAt` + `inflight`）fsync 到 `state.json`
-2. 占位落盘失败则**本轮不执行**（宁可跳过，也不冒重复执行的风险）
-3. 进程在执行中退出 → 启动时扫到残留 `inflight`，记一条 `result.kind=interrupted` 并清掉，**不重放**（at-most-once）
+1. before running, the claim (`lastFiredFor` + `endedAt` + `inflight`) is fsynced to `state.json`
+2. if the claim cannot be persisted, **this round does not run** (skip rather than risk a duplicate)
+3. if the process dies mid-run, startup finds the leftover `inflight`, records `result.kind=interrupted`, clears it, and **does not replay** (at-most-once)
 
 ---
 
-## 源码布局
+## Source layout
 
 ```
-index.js             插件装配：探测 dshIm / sessionController → 调度器 + 守卫 + 声明式任务
-config.js            zod 校验 + 默认值
-tools.js             9 个 imcron_* 工具（全局行 im-cron-tools）
-agent-settings.js    Loader 行 im-cron-agent（Web 表单）
-client.js            Plugins 页表单
-diag.js              按需诊断日志
+index.js              plugin wiring: probe dshIm / sessionController → scheduler + guards + declared jobs
+config.js             zod validation + defaults
+tools.js              the 9 imcron_* tools (global row im-cron-tools)
+agent-settings.js     Loader row im-cron-agent (Web form)
+client.js             Plugins-page form
+diag.js               on-demand diagnostic log
 
-core/schedule.js     at / cron / every 解析、nextDue、DST 墙上时间引擎
-core/scheduler.js    截止点定时器 + 兜底扫描、原子占位、崩溃恢复、activeHours、maxRuns
-core/job.js          载荷分派 → 投递三态 → runs 记账
-core/agent-turn.js   任务会话、回合归属、两段式超时、答案提取
-core/scripts.js      脚本路径解析与目录越界校验
-core/exec.js         进程 spawn、进程树、输出尾部
-core/store.js        state.json 原子写、runs.jsonl、损坏隔离
+core/schedule.js      at / cron / every parsing, nextDue, DST wall-clock engine
+core/scheduler.js     deadline timer + fallback sweep, atomic claim, crash recovery, activeHours, maxRuns
+core/job.js           payload dispatch → delivery states → runs bookkeeping
+core/agent-turn.js    task sessions, turn ownership, two-stage timeout, answer extraction
+core/scripts.js       script path resolution and directory escape checks
+core/exec.js          process spawn, process tree, output tail
+core/store.js         atomic state.json writes, runs.jsonl, corruption isolation
 
 channel/dsh-im.js    send / resolveTarget / describeTarget / describeConversation(+Sync)
 cli.js               doctor / list / run / log
-examples/            示例配置与演示脚本
+examples/            example configs and demo scripts
 ```
 
-`channel/dsh-im.js` 是**唯一**跟 dsh-im 打交道的文件：换渠道只需换它，
-`core/` 全部与渠道无关。
+`channel/dsh-im.js` is the **only** file that talks to dsh-im: switching channels means replacing it,
+and everything under `core/` is channel-agnostic.
 
 ---
 
-## 与 dsh-im 的契约
+## Contract with dsh-im
 
-本插件只依赖 dsh-im 暴露的**服务方法**，不 import 它的代码、不读它的状态文件：
+This plugin depends only on the **service methods** dsh-im exposes; it does not import its code and does not read its state files:
 
-| 方法 | 用途 |
+| Method | Purpose |
 |---|---|
-| `send(botId, targetId, text, { format })` | 主动发送，零 session / 零回合 / 零模型 |
-| `describeConversation(sessionId)` | 会话 → `{channel, botId, chatType, chatId, senderId}`（建任务时定位目标） |
-| `describeConversationSync(sessionId)` | 同上，内存快路径；路由守卫和提示作用域用它 |
-| `listTargets(botId)` | 复用已保存的投递目标 |
-| `createTarget(botId, {targetId, name, kind, route})` | 首次建目标（只接受这 4 个键） |
+| `send(botId, targetId, text, { format })` | proactive send: no session, no turn, no model |
+| `describeConversation(sessionId)` | session → `{channel, botId, chatType, chatId, senderId}` (locating the target when creating a task) |
+| `describeConversationSync(sessionId)` | same as above as an in-memory fast path; used by the routing guard and the prompt scope |
+| `listTargets(botId)` | reuse saved delivery targets |
+| `createTarget(botId, {targetId, name, kind, route})` | create a target for the first time (exactly these 4 keys) |
 
-启动时会检查 `contractVersion >= 1`；缺任何一个方法就只禁用投递，插件本身照常加载。
+At startup it checks `contractVersion >= 1`; if any method is missing, only delivery is disabled — the plugin still loads.
 
-**dsh-im 升级时先看这两件事**：`contractVersion` 有没有变、`send` 的参数形状有没有变。
-适配层集中在 `channel/dsh-im.js` 一个文件里 —— 换渠道或跟进契约变化只改这里。
+**When upgrading dsh-im, check two things first**: whether `contractVersion` changed, and whether the `send` argument shape changed.
+The adapter is concentrated in `channel/dsh-im.js` — switching channels or following contract changes means editing only that file.
 
-> 也支持在 profile 里手写两行代替 bundle 安装，见 `examples/config.yml`。
+> You can also hand-write two rows in the profile instead of installing the bundle; see `examples/config.yml`.
 
-## 安全模型
+## Security model
 
-| 面 | 控制 |
+| Surface | Control |
 |---|---|
-| 能跑什么（脚本） | 只能是 `scriptDir` 内的**已存在可执行文件**；不接受 shell 字符串；群聊里整体禁用 |
-| 能跑什么（agent） | 只看任务会话的 preset 工具集；不改用户聊天会话；审批无人应答时挂到超时（见已知限制） |
-| 能发给谁 | 目标只能由当前会话反查，**模型不能指定 bot / 聊天** |
-| 能发多少 | `maxJobs`、`maxJobsPerTarget`、`maxNotifyChars`，创建时校验 |
-| 能跑多少 | `agent.maxConcurrent`、同一任务单飞；`cron`/`every` 最小粒度 1 分钟（`at` 可到秒） |
-| 审计 | 每次运行与投递写 `runs.jsonl`（不含凭据） |
+| What can run (scripts) | only an **existing executable inside `scriptDir`**; no shell strings; disabled entirely in group chats |
+| What can run (agent) | whatever the task session's preset tool set allows; user chat sessions are untouched; an unanswered approval hangs until the timeout (see known limitations) |
+| Who can receive | the target is looked up from the current session only; **the model cannot name a bot / chat** |
+| How much can be sent | `maxJobs`, `maxJobsPerTarget`, `maxNotifyChars`, checked at creation |
+| How much can run | `agent.maxConcurrent`, one run per task at a time; `cron` / `every` granularity is 1 minute (`at` can be per-second) |
+| Audit | every run and delivery is written to `runs.jsonl` (no credentials) |
 
 ---
 
-## 故障排查
+## Troubleshooting
 
-| 现象 | 先看 | 处理 |
+| Symptom | Look at first | Fix |
 |---|---|---|
-| 到点没跑 | `cli.js list` 的 `下次`、`cli.js doctor` 的任务计数 | 确认 DSH 在跑、任务 `启用`。精度靠定时器，`pollSeconds` 只是兜底 |
-| 跑了但没收到 | `runs.jsonl` 的 `deliver.status` / `error` | `bot-not-connected` 等重连；`unknown-target` → 任务转 `needs-rebind` |
-| 模型说"建不了任务" | 聊天是否在 QQ、`allowGroup`、`allowChannels` | 工具只在 IM 会话里可用；Web 里会提示去 QQ |
-| 模型没调 `imcron_*` | preset 是否屏蔽了工具 | 检查 profile / preset 的工具集 |
-| agent 任务一直跳过 | `result.reason` | `running` = 上一轮没结束；`busy` = 超出 `maxConcurrent` |
-| agent 报 `stuck` | 任务会话日志里的 `approval/asked` | 多半停在 `ask` 上无人应答；配 `danger-full-access` |
-| 出现 `result.kind=interrupted` | 上一条同任务的 `inflight` | 进程在执行中退出；该槽**不重放**。一次性任务已标记结束，需要就**重新创建** |
-| 任务里 `ps` / `top` 报 `Operation not permitted` | 任务会话的 `sandbox/mode` | `workspace-write` 不允许 exec setuid 程序；改用 `pgrep` / `lsof`，或配 `danger-full-access` |
-| 脚本任务建不了 | `cli.js doctor` 的 `scriptDir` 行 | 目录不存在或脚本不在里面 / 没 `chmod +x` |
+| did not run on time | `下次` (next) in `cli.js list`, task count in `cli.js doctor` | confirm DSH is running and the task is `启用` (enabled). Precision comes from the timer; `pollSeconds` is only a fallback |
+| ran but nothing arrived | `deliver.status` / `error` in `runs.jsonl` | `bot-not-connected` etc. → reconnect; `unknown-target` → the task becomes `needs-rebind` |
+| the model says "can't create a task" | whether the chat is on QQ, `allowGroup`, `allowChannels` | the tools only work in IM sessions; Web sessions are told to go to QQ |
+| the model never calls `imcron_*` | does the preset hide the tools | check the profile / preset tool set |
+| an agent task is always skipped | `result.reason` | `running` = the previous run has not finished; `busy` = over `maxConcurrent` |
+| an agent task reports `stuck` | `approval/asked` in the task session log | most likely it is sitting on `ask` with nobody answering; configure `danger-full-access` |
+| `result.kind=interrupted` appears | the previous run's `inflight` for that task | the process died mid-run; that slot is **not replayed**. A one-shot task is already marked finished — **recreate** it if needed |
+| `ps` / `top` reports `Operation not permitted` | the task session's `sandbox/mode` | `workspace-write` cannot exec setuid programs; use `pgrep` / `lsof`, or configure `danger-full-access` |
+| cannot create a script task | the `scriptDir` line in `cli.js doctor` | the directory is missing, the script is not inside it, or it lacks `chmod +x` |
 
-### 诊断日志
+### Diagnostic log
 
-默认关闭。排查调度问题前在**启动 DSH 之前**设置环境变量：
+Off by default. Set the environment variable **before starting DSH** when debugging scheduling:
 
 ```bash
 IMCRON_DIAG=1 dsh web
-IMCRON_DIAG=1 IMCRON_DIAG_FILE=/tmp/imcron-trace.log dsh web   # 改输出位置
+IMCRON_DIAG=1 IMCRON_DIAG_FILE=/tmp/imcron-trace.log dsh web   # change the output location
 ```
 
-JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。
-同一进程出现**两个不同的实例 id** 说明插件模块被加载了两份 —— 这是"配置不生效"的典型原因。
-`npm test` 下永不写日志。
+JSON Lines, each line `<ISO time> [<module instance id>] <event> {<JSON>}`.
+**Two different instance ids in the same process** mean the plugin module was loaded twice — the classic cause of "config not taking effect".
+Under `npm test` it never writes.
 
 ---
 
-## 已知限制
+## Known limitations
 
-- **`workspace-write` 下 `ps` / `top` / `sudo` 一律不可用。** 它们是 setuid 二进制，
-  Seatbelt 沙箱不允许 exec setuid 程序，报 `Operation not permitted`。
-  这不是审批能解决的 —— 只能 `danger-full-access` 解除沙箱，或改用 `pgrep` / `lsof` / `vm_stat` / `iostat`。
-- **审批会挂住无人值守的回合。** 任务会话停在 `ask` 策略上时，只要有 Web GUI 在线（它注册了
-  `approval/request` 应答者），请求会排进任务会话界面等人点，无人应答就等到软截止超时。
-  只有**完全没有应答者**时才瞬时 fail-closed。无人值守请配 `danger-full-access`（`approval: never`）。
-- 群聊主动消息可能被平台限流，失败记 `delivery-failed`，不自动重发（可能已发出）。
-- 群聊**不支持脚本载荷**。
-- CLI 没有投递通道，`cli.js run` 一律记 `deliver=skipped`。
-- 任务会话出现在 Web 侧栏 **Ungrouped** 分组（标题 `⏰ <任务名>`）。
-- 提醒文本上限在**创建时**校验；脚本 / 模型输出不设上限，由 dsh-im 按 4500 字分片。
-- 同一任务的 agent 回合**单飞**：上一轮没跑完时本次记 `skipped: running`，所以"每分钟"实际是"每分钟最多一次"。
-- 多实例并发共用同一 `stateDir` 时，幂等保证只在单进程内成立（启动时的 `recoverInterrupted` 会接管残留占位）。
-- 渠道层目前只实现了 dsh-im；接其他渠道需要新写 `channel/*.js`（接口见源码布局）。
-- Windows 分支（`cmd.exe`）只做了静态检查，未实测。
+- **`ps` / `top` / `sudo` never work under `workspace-write`.** They are setuid binaries and the
+  Seatbelt sandbox refuses to exec setuid programs, reporting `Operation not permitted`.
+  No approval can fix this — only `danger-full-access` (no sandbox at all), or use `pgrep` / `lsof` / `vm_stat` / `iostat`.
+- **An approval can stall an unattended turn.** When the task session sits on `ask` and a Web GUI is online
+  (it registers an `approval/request` answerer), the request queues in the task session's UI for a human and
+  nobody answers, so it waits until the soft deadline. Only when there is **no answerer at all** does it fail
+  closed instantly. For unattended setups use `danger-full-access` (`approval: never`).
+- Proactive messages in group chats may be throttled by the platform; failures are recorded as `delivery-failed` and not resent (they may already have been delivered).
+- Group chats **do not support script payloads**.
+- The CLI has no delivery channel, so `cli.js run` always records `deliver=skipped`.
+- Task sessions appear in the Web sidebar under **Ungrouped** (title `⏰ <task name>`).
+- The reminder text limit is checked **at creation**; script / model output is unbounded and chunked by dsh-im at 4500 characters.
+- An agent turn for the same task is **single-flight**: when the previous run has not finished, this one records `skipped: running`, so "every minute" really means "at most once per minute".
+- With several instances sharing one `stateDir`, idempotency only holds within a single process (startup `recoverInterrupted` takes over leftover claims).
+- Only the dsh-im channel is implemented; another channel needs a new `channel/*.js` (see the source layout for the interface).
+- The Windows branch (`cmd.exe`) is statically checked only.
 
 ---
 
-## 开发
+## Development
 
 ```bash
 npm install
-npm test          # node --test，167 个用例
+npm test          # node --test, 167 cases
 ```
 
-测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、
-三种载荷与投递三态、回合归属与超时、脚本路径校验、工具参数与文案。
+Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`,
+the three payloads and delivery states, turn ownership and timeouts, script path validation, tool arguments and copy.
 
 ---
 
-## 许可证
+## License
 
 [MIT](LICENSE)
