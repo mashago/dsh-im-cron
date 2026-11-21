@@ -16,6 +16,7 @@
     "client.js",
     "agent-settings.js",
     "config.js",
+    "diag.js",
     "core",
     "channel",
     "cli.js",
