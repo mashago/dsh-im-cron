@@ -1,0 +1,26 @@
+# 运维声明式任务：启动时按 id upsert，不需要经过模型，也不需要 IM 会话。
+# 适合“每天固定备份”这类本来就该写在配置里的任务。
+- insert:
+    - id: im-cron
+      name: dsh-im-cron
+      config:
+        timezone: Asia/Shanghai
+        # 脚本目录：脚本必须放在这里且有执行权限
+        scriptDir: null
+        jobs:
+          - id: decl-backup
+            name: 每日备份
+            schedule: { cron: "0 2 * * *" }
+            payload: { kind: command, script: demo.sh }
+            deliver: on-failure
+            target:
+              botId: qq_xxxxxxxxxxxxxxxx
+              targetId: cron-0123456789ab
+          - id: decl-standup
+            name: 每日站会
+            schedule: { cron: "0 9 * * 1-5" }
+            payload: { kind: notify, text: "站会时间到了" }
+            deliver: always
+            target:
+              botId: qq_xxxxxxxxxxxxxxxx
+              targetId: cron-0123456789ab

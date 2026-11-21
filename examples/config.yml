@@ -1,0 +1,38 @@
+# dsh-im-cron 示例配置（放进 profile 的 cordis.patch.yml，或 bundle 的 config 块）
+#
+# 最小可用配置：其余用默认值。
+- insert:
+    - id: im-cron
+      name: dsh-im-cron
+      config:
+        pollSeconds: 30
+        timezone: Asia/Shanghai
+        defaultTimeoutSeconds: 600
+        catchUp: none
+        endedRetentionHours: 24
+        maxJobs: 500
+        maxJobsPerTarget: 50
+        maxNotifyChars: 2000
+        allowChannels: [qq]
+        allowGroup: true
+
+        # 脚本目录：留空 = <stateDir>/workspace（$DSH_HOME/im-cron/workspace）
+        # 插件不创建它，需要自己 mkdir 并把可执行脚本放进去。
+        scriptDir: null
+
+        # 执行时间窗（可选）
+        activeHours: { start: '08:00', end: '22:00', timezone: Asia/Shanghai }
+
+        # agent 载荷（探测不到 sessionController 时自动只禁用这类任务）。
+        agent:
+          enabled: true
+          timeoutSeconds: 900
+          maxConcurrent: 2
+          permissionPreset: null
+          taskSessionMaxAgeDays: 30
+          attachWorkspace: false
+          echoToChat: false
+
+    # 模型面工具必须单独一行，否则聊天里无法创建任务。
+    - id: im-cron-tools
+      name: dsh-im-cron/tools

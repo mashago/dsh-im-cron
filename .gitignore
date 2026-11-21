@@ -1,0 +1,14 @@
+# Dependencies are installed from package.json by the harness profile.
+node_modules/
+
+# Packed plugin artifacts.
+*.tgz
+
+# Editor and OS noise.
+.DS_Store
+.idea/
+.vscode/
+
+# Local probe output from ad-hoc verification runs.
+*.log
+probe-*

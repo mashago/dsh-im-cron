@@ -1,0 +1,10 @@
+# dsh-im-cron bundle patch: scheduler, model-facing tools, and the task-session
+# settings row whose form appears on the Plugins page.
+- insert:
+    - id: im-cron
+      name: dsh-im-cron
+      config: {}
+    - id: im-cron-tools
+      name: dsh-im-cron/tools
+    - id: im-cron-agent
+      name: dsh-im-cron/agent-settings
