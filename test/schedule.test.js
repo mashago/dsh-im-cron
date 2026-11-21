@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import {
   ScheduleError,
@@ -214,4 +217,15 @@ test('describeSchedule: every unit renders without undefined holes', () => {
     assert.equal(text, expected)
     assert.doesNotMatch(text, /undefined|null/u)
   }
+})
+
+test('config: scriptDir defaults under stateDir and honors an override', async () => {
+  const { parseConfig } = await import('../config.js')
+  const dir = await mkdtemp(join(tmpdir(), 'imcron-config-'))
+  assert.equal(parseConfig({ stateDir: dir }).config.scriptDir, join(dir, 'workspace'))
+  assert.equal(parseConfig({ stateDir: dir, scriptDir: '/custom/scripts' }).config.scriptDir, '/custom/scripts')
+  // Pointing it at the state dir itself is refused, not silently accepted.
+  const same = parseConfig({ stateDir: dir, scriptDir: dir })
+  assert.equal(same.config.scriptDir, join(dir, 'workspace'))
+  assert.match(same.warnings.join('\n'), /scriptDir 不能等于 stateDir/u)
 })

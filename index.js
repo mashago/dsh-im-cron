@@ -116,7 +116,7 @@ export function installImScheduleGuard(ctx, channel, logger) {
   if (typeof ctx?.on !== 'function') return () => {}
   const denied = new Set(NATIVE_SCHEDULE_TOOLS)
   const message = '在 IM 聊天里 schedule_* 不可用：它的回答默认不会推送到聊天。'
-    + '请改用 imcron_remind（固定提醒）、imcron_run（白名单命令）或 imcron_ask（模型汇总）。'
+    + '请改用 imcron_remind（固定提醒）、imcron_run（跑脚本）或 imcron_ask（模型汇总）。'
   const listener = async (exec, next) => {
     if (!denied.has(exec?.name)) return next()
     const sessionId = exec?.agent?.session?.id

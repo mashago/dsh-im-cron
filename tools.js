@@ -456,7 +456,7 @@ function createToolRuntime(ctx) {
       + 'The answer is produced by a model, so the run costs tokens and may take minutes. '
       + 'Prefer this over schedule_create when the result should arrive in this chat: schedule_* only mirrors answers when '
       + 'deliverModelAnswers is on, and it runs in the chat session instead of a dedicated task session. '
-      + 'Do NOT use it for fixed reminders (imcron_remind) or whitelisted scripts (imcron_run).',
+      + 'Do NOT use it for fixed reminders (imcron_remind) or registered scripts (imcron_run).',
     parameters: {
       type: 'object',
       properties: {

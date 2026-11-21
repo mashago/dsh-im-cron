@@ -218,3 +218,27 @@ test('job: agent payload without a runtime is a failure, not a crash', async () 
   })
   assert.equal(record.result.reason, 'agent-unavailable')
 })
+
+test('job: a script path containing a space runs, because the file is spawned directly', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imcron-job-'))
+  const spaced = join(dir, 'a directory with spaces')
+  await mkdir(spaced, { recursive: true })
+  const file = join(spaced, 'spaced.sh')
+  await writeFile(file, '#!/bin/sh\nprintf spaced-ok\n')
+  await chmod(file, 0o755)
+  const { config } = parseConfig({ stateDir: dir, scriptDir: spaced })
+  const store = new Store(dir)
+  const sent = []
+  const runner = createJobRunner({
+    store, config, logger: null, now: () => NOW,
+    send: async (job, text) => { sent.push(text); return { status: 'sent' } },
+  })
+  const { record } = await runner.run({
+    job: job({ payload: { kind: 'command', script: file }, deliver: 'always' }),
+    occurrence: NOW,
+  })
+  // A shell would word-split the path and fail with exit 127 here.
+  assert.equal(record.result.kind, 'ok')
+  assert.equal(record.result.exit, 0)
+  assert.equal(sent[0], 'spaced-ok')
+})

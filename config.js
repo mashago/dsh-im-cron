@@ -128,7 +128,7 @@ export function parseConfig(raw = {}, { env = process.env, home = homedir() } = 
     ...DEFAULT_CONFIG,
     ...source,
     stateDir: typeof source.stateDir === 'string' ? source.stateDir : null,
-    scriptDir: null,
+    scriptDir: typeof source.scriptDir === 'string' ? source.scriptDir : null,
     jobs: Array.isArray(source.jobs) ? source.jobs : [],
     agent: { ...DEFAULT_CONFIG.agent, ...(source.agent && typeof source.agent === 'object' ? source.agent : {}) },
   }

@@ -11,7 +11,7 @@
  * needed by `run` so command names resolve).
  */
 import { readFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { parseConfig, hostTimezone } from './config.js'
 import { Store } from './core/store.js'
 import { createJobRunner } from './core/job.js'
@@ -51,9 +51,19 @@ function scheduleText(job) {
   }
 }
 
-/** The script directory the plugin would use for this state dir. */
-async function resolveScriptDir(stateDir) {
-  return join(stateDir, 'workspace')
+/**
+ * The script directory the plugin would use, resolved through the same config
+ * parsing the plugin does — otherwise `doctor` would report a default that a
+ * `scriptDir` override replaced.
+ * @param {object} store
+ * @param {object} options - CLI options, including an optional `--config`
+ * @returns {Promise<string>}
+ */
+async function resolveScriptDir(store, options) {
+  const rawConfig = await loadRawConfig(options)
+  const { config, warnings } = parseConfig({ ...rawConfig, stateDir: store.dir })
+  for (const warning of warnings) console.log(`config warn   ${warning}`)
+  return config.scriptDir
 }
 
 async function cmdDoctor(store, options) {
@@ -79,7 +89,7 @@ async function cmdDoctor(store, options) {
   console.log(`jobs          ${counts.total}（启用 ${counts.enabled} / 暂停 ${counts.paused} / 已结束 ${counts.ended} / 异常 ${counts.broken}）`)
   console.log(`runs.jsonl    最后一条：${runs.length === 0 ? '（空）' : isoOrDash(runs[0]?.at)}`)
   console.log(`host timezone ${hostTimezone()}`)
-  const scriptDir = await resolveScriptDir(store.dir)
+  const scriptDir = await resolveScriptDir(store, options)
   let scriptNote = ''
   try {
     const { readdir } = await import('node:fs/promises')
