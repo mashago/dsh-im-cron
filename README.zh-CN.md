@@ -8,6 +8,14 @@
 
 > It is a companion plugin for dsh-im, not a standalone IM channel.
 
+## 截图
+
+| QQ 里创建并执行一个 `agent` 定时任务 | 在聊天里 `imcron_list` |
+|---|---|
+| <img src="docs/screenshots/qq-scheduled-agent-task.jpg" width="340" alt="QQ 聊天：用户说 1 分钟后用 top 看看 CPU 内存占用，机器人确认排期并在到点后回复报告"> | <img src="docs/screenshots/qq-task-list.jpg" width="340" alt="QQ 聊天：用户说列出定时任务，机器人用表格按 notify / command / agent 列出任务"> |
+
+---
+
 ## ⚠️ 先读这个：它依赖 dsh-im
 
 本插件**不连 QQ、不发消息、不管理会话**。它只做"什么时候跑、跑什么、把结果交给谁"。

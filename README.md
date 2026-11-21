@@ -8,6 +8,14 @@
 
 > It is a companion plugin for dsh-im, not a standalone IM channel.
 
+## Screenshots
+
+| A scheduled `agent` task in QQ | `imcron_list` in the chat |
+|---|---|
+| <img src="docs/screenshots/qq-scheduled-agent-task.jpg" width="340" alt="QQ chat: the user asks for a top snapshot in one minute; the bot confirms the schedule and later replies with the report"> | <img src="docs/screenshots/qq-task-list.jpg" width="340" alt="QQ chat: the user asks to list scheduled tasks; the bot answers with a table of tasks grouped by notify / command / agent"> |
+
+---
+
 ## ⚠️ Read this first: it depends on dsh-im
 
 This plugin **does not connect to QQ, send messages, or manage sessions**. It only decides *when* to run, *what* to run, and *where the result goes*.
