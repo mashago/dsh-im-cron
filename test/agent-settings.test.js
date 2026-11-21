@@ -53,6 +53,20 @@ test('agent settings: the Config schema exposes exactly the six live fields', ()
   assert.equal(accepted.value.cwd.get(), '/tmp/a')
 })
 
+test('agent settings: a volatile update reaches the next read without a re-apply', () => {
+  const disposers = []
+  let cwd = '/tmp/before'
+  const ref = { get: () => cwd }
+  apply({ effect: (fn) => { disposers.push(fn()) } }, { cwd: ref })
+  assert.equal(getAgentSettings().cwd, '/tmp/before')
+  // A saved form change is committed into the same volatile reference by the
+  // Loader; the next run must see it without the row being applied again.
+  cwd = '/tmp/after'
+  assert.equal(getAgentSettings().cwd, '/tmp/after')
+  for (const fn of disposers) fn()
+  assert.equal(getAgentSettings().cwd, undefined)
+})
+
 test('agent settings: unloading the row clears the settings', () => {
   const disposers = []
   apply({ effect: (fn) => { disposers.push(fn()) } }, { cwd: '/tmp/live' })

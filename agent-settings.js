@@ -3,13 +3,13 @@
  *
  * This module is also the Loader row `im-cron-agent`: its schemastery `Config`
  * gives the Plugins page a live form (Web → 插件 → dsh-im-cron → agent 任务会话),
- * and `apply` pushes the accepted values into this module's store, which
- * `core/agent-turn.js` reads at the start of every run.
+ * and `apply` keeps the accepted config, which `core/agent-turn.js` reads at the
+ * start of every run.
  *
- * A saved form change needs a DSH restart before it reaches a run. Saving writes
- * the profile patch, but this module is a singleton: a hot reload replaces the
- * row's instance while `core/agent-turn.js` keeps its original import, so the
- * running task keeps reading the previous values.
+ * The fields are `volatile()`, so the Loader commits a saved form change into
+ * the same config reference without remounting the row: `getAgentSettings()`
+ * re-reads those references on every call, so the change reaches the next task
+ * run without a DSH restart.
  */
 import z from '@deepseek-ai/schemastery'
 import { diag, INSTANCE } from './diag.js'
@@ -58,18 +58,18 @@ export function normalizeAgentSettings(config = {}) {
   return Object.freeze(out)
 }
 
+let source = {}
 let current = normalizeAgentSettings({})
 const listeners = new Set()
 
-/** The settings currently in force (read at every task run). */
-export function getAgentSettings() {
-  return current
+function sameSettings(left, right) {
+  return FIELDS.every((field) => left[field] === right[field])
 }
 
-/** Replace the settings and notify subscribers. */
-export function setAgentSettings(config = {}) {
-  current = normalizeAgentSettings(config)
-  diag('set-settings', { normalized: current })
+function commit(next) {
+  if (sameSettings(next, current)) return current
+  current = next
+  diag('settings-updated', { normalized: current })
   for (const listener of [...listeners]) {
     try {
       listener(current)
@@ -78,6 +78,23 @@ export function setAgentSettings(config = {}) {
     }
   }
   return current
+}
+
+/**
+ * The settings currently in force (read at every task run).
+ *
+ * The Loader commits volatile config updates in place, so re-normalizing the
+ * retained reference is what makes a saved form change visible to the next run
+ * without restarting DSH.
+ */
+export function getAgentSettings() {
+  return commit(normalizeAgentSettings(source))
+}
+
+/** Replace the settings and notify subscribers. */
+export function setAgentSettings(config = {}) {
+  source = config ?? {}
+  return commit(normalizeAgentSettings(source))
 }
 
 /** Observe settings changes; returns the disposer. */

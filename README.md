@@ -102,7 +102,8 @@ dsh --profile web --dump-config | grep im-cron
 
 `delivery=unavailable` 表示没探测到 dsh-im：`notify` / `command` 仍会执行，只是不投递。
 
-> **改配置后需要重启 DSH。** 插件配置在启动时读取，热重载不生效。
+> **主插件配置（`im-cron` 行：`timezone`、`scriptDir`、`activeHours`、`jobs` 等）改后需要重启 DSH**，
+> 它在启动时读取。插件页里的「agent 任务会话」设置是例外：保存后下一次 agent 任务执行即生效。
 
 ---
 
@@ -380,8 +381,9 @@ chmod +x ~/.dsh/im-cron/workspace/stock-report.sh
     permissionPreset: danger-full-access
 ```
 
-也可以在 **Web → 插件 → dsh-im-cron → agent 任务会话** 里改。**保存后需重启 DSH**
-（`agent-settings.js` 是模块级单例，热重载替换行实例后，`agent-turn.js` 仍持有旧 import）。
+也可以在 **Web → 插件 → dsh-im-cron → agent 任务会话** 里改。**保存后下一次 agent 任务执行即生效**
+（字段是 Loader 的 volatile 配置，`agent-turn.js` 每轮重新读取；改动会触发该任务重建会话）。
+通知 / 脚本载荷不受这些设置影响。
 
 ---
 
@@ -546,7 +548,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。
 
 ```bash
 npm install
-npm test          # node --test，164 个用例
+npm test          # node --test，167 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、

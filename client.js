@@ -13,12 +13,12 @@ window.__ModuleLoader__.load({
     const h = React.createElement
 
     const FIELDS = [
-      ['cwd', '工作目录', '任务会话的 cwd，例如 ~/.dsh/im；留空 = DSH 进程 cwd'],
-      ['agentPreset', 'Agent preset', '例如 standard；留空 = 部署默认'],
-      ['provider', '模型提供方', '例如 deepseek-account；留空 = 跟随部署默认'],
-      ['model', '模型', '例如 deepseek-flash；留空 = 跟随部署默认'],
-      ['reasoningEffort', '推理等级', '例如 high；留空 = 跟随 provider 默认'],
-      ['permissionPreset', '任务会话权限档', '留空 = 跟随部署默认'],
+      ['cwd', '工作目录', '默认 = DSH 进程的 cwd；建议填 ~/.dsh/im-cron'],
+      ['agentPreset', 'Agent preset', '默认 = 部署默认 preset（通常是 standard）'],
+      ['provider', '模型提供方', '默认 = 部署默认模型路由'],
+      ['model', '模型', '默认 = 部署默认模型'],
+      ['reasoningEffort', '推理等级', '默认 = provider 默认档'],
+      ['permissionPreset', '任务会话权限档', '默认 = 部署默认权限档（通常是 workspace-write + 需审批）'],
     ]
 
     const PERMISSION_OPTIONS = [
@@ -97,7 +97,7 @@ window.__ModuleLoader__.load({
 
       return h('form', { onSubmit: submit, style: styles.form },
         h('h3', { style: styles.title }, 'agent 任务会话'),
-        h('p', { style: styles.note }, '保存后需要重启 DSH 才会生效；重启后下一次任务执行按新配置重建会话。留空表示跟随部署默认。'),
+        h('p', { style: styles.note }, '保存后下一次任务执行即生效（改动会重建该任务的会话）。留空 = 使用下方标注的默认值。'),
         ...FIELDS.map(([field, label, hint]) => h('label', { key: field, style: fieldStyle },
           h('span', { style: styles.label }, label),
           field === 'permissionPreset'
@@ -117,7 +117,7 @@ window.__ModuleLoader__.load({
           h('small', { style: styles.hint }, hint))),
         h('div', { style: styles.row },
           h('button', { type: 'submit', disabled, style: styles.button }, status === 'saving' ? '保存中…' : '保存'),
-          status === 'saved' ? h('span', { style: styles.hint }, '已保存，重启 DSH 后生效') : null,
+          status === 'saved' ? h('span', { style: styles.hint }, '已保存，下次任务执行时生效') : null,
           status === 'failed' ? h('span', { style: styles.hint }, '保存失败，请重试') : null))
     }
 
