@@ -258,7 +258,7 @@ Rules:
 | `maxNotifyChars` | `2000` | reminder text limit (checked at creation) |
 | `maxJobs` / `maxJobsPerTarget` | `500` / `50` | task count caps |
 | `allowChannels` | `['qq']` | channels allowed to create tasks |
-| `allowGroup` | `true` | allow creating tasks in group chats (**script payloads are always disabled in groups**) |
+| `allowGroup` | `false` | allow creating tasks in group chats (**script payloads are always disabled in groups**). The switch at the top of the plugin page toggles it live, no restart |
 | `jobs` | `[]` | declarative tasks, upserted by id at startup (existing water marks are kept) |
 | `agent.enabled` | `true` | only the `agent` payload is disabled when `sessionController` is missing |
 | `agent.timeoutSeconds` | `900` | **soft deadline** of an agent turn |
@@ -391,8 +391,9 @@ Equivalent manual config:
     permissionPreset: danger-full-access
 ```
 
-You can also change it in **Web → Plugins → dsh-im-cron → agent task session**. **It takes effect on the next agent run after saving**
-(the fields are Loader-volatile, and `agent-turn.js` re-reads them on every run; a change rebuilds that task's session).
+You can also change it from **Web → Plugins → dsh-im-cron** with the **配置任务会话** button in the page head (or inside the
+`agent 任务会话` row). **It takes effect on the next agent run after saving** (the fields are Loader-volatile, and
+`agent-turn.js` re-reads them on every run; a change rebuilds that task's session). The same dialog has the group-chat switch; it is saved by the same **Save** button.
 Notify / script payloads are unaffected by these settings.
 
 ---
@@ -559,7 +560,7 @@ Under `npm test` it never writes.
 
 ```bash
 npm install
-npm test          # node --test, 169 cases
+npm test          # node --test, 172 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`,

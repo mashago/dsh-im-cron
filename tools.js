@@ -277,7 +277,7 @@ function createToolRuntime(ctx) {
     const target = await channel.resolveTarget(sessionId, {
       jobName: name,
       allowChannels: im.config.allowChannels,
-      allowGroup: im.config.allowGroup,
+      allowGroup: typeof im.isGroupAllowed === 'function' ? im.isGroupAllowed() : im.config.allowGroup,
     }).catch((error) => {
       throw new ToolError(error?.code ?? 'resolve-target-failed', error?.message ?? String(error))
     })

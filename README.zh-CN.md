@@ -260,7 +260,7 @@ dsh --profile web --dump-config | grep im-cron
 | `maxNotifyChars` | `2000` | 提醒文本上限（创建时校验） |
 | `maxJobs` / `maxJobsPerTarget` | `500` / `50` | 任务容量上限 |
 | `allowChannels` | `['qq']` | 允许创建任务的渠道 |
-| `allowGroup` | `true` | 是否允许群聊建任务（**群聊里脚本载荷一律禁用**） |
+| `allowGroup` | `false` | 是否允许群聊建任务（**群聊里脚本载荷一律禁用**）。插件页顶部的开关可即时切换，无需重启 |
 | `jobs` | `[]` | 声明式任务，启动时按 id upsert（保留既有水位） |
 | `agent.enabled` | `true` | 探测不到 `sessionController` 时自动只禁用 `agent` 载荷 |
 | `agent.timeoutSeconds` | `900` | agent 回合的**软截止** |
@@ -393,8 +393,9 @@ chmod +x ~/.dsh/im-cron/workspace/stock-report.sh
     permissionPreset: danger-full-access
 ```
 
-也可以在 **Web → 插件 → dsh-im-cron → agent 任务会话** 里改。**保存后下一次 agent 任务执行即生效**
-（字段是 Loader 的 volatile 配置，`agent-turn.js` 每轮重新读取；改动会触发该任务重建会话）。
+也可以在 **Web → 插件 → dsh-im-cron** 里点页头的「配置任务会话」按钮改（或进 `agent 任务会话` 那一行）。**保存后下一次
+agent 任务执行即生效**（字段是 Loader 的 volatile 配置，`agent-turn.js` 每轮重新读取；改动会触发该任务重建会话）。
+同一个弹窗里还有群聊开关，和六个字段一起由「保存」提交。
 通知 / 脚本载荷不受这些设置影响。
 
 ---
@@ -560,7 +561,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。
 
 ```bash
 npm install
-npm test          # node --test，169 个用例
+npm test          # node --test，172 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、

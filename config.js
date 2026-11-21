@@ -71,7 +71,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   endedRetentionHours: 24,
   maxNotifyChars: 2_000,
   allowChannels: ['qq'],
-  allowGroup: true,
+  allowGroup: false,
   scriptDir: null,
   jobs: [],
   agent: {
@@ -119,18 +119,34 @@ export function hostTimezone(now = new Date()) {
  * @param {{ env?: Record<string, string | undefined>, home?: string }} [io]
  * @returns {{ config: typeof DEFAULT_CONFIG, warnings: string[] }}
  */
+/** Read one Loader-volatile value once, for the startup snapshot. */
+function readVolatile(value) {
+  if (value !== null && typeof value === 'object' && typeof value.get === 'function') {
+    try {
+      return value.get()
+    } catch {
+      return undefined
+    }
+  }
+  return value
+}
+
 export function parseConfig(raw = {}, { env = process.env, home = homedir() } = {}) {
   const warnings = []
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
   if (source !== raw) warnings.push('配置不是对象，已按默认值启动')
+  // Schemastery marks `allowGroup` volatile: the Loader hands it over as a
+  // reference the Plugins page updates in place. This snapshot keeps the value
+  // read at startup; `tools.js` re-reads the live reference for the switch.
+  const plain = Object.fromEntries(Object.entries(source).map(([key, value]) => [key, readVolatile(value)]))
 
   const merged = {
     ...DEFAULT_CONFIG,
-    ...source,
-    stateDir: typeof source.stateDir === 'string' ? source.stateDir : null,
-    scriptDir: typeof source.scriptDir === 'string' ? source.scriptDir : null,
-    jobs: Array.isArray(source.jobs) ? source.jobs : [],
-    agent: { ...DEFAULT_CONFIG.agent, ...(source.agent && typeof source.agent === 'object' ? source.agent : {}) },
+    ...plain,
+    stateDir: typeof plain.stateDir === 'string' ? plain.stateDir : null,
+    scriptDir: typeof plain.scriptDir === 'string' ? plain.scriptDir : null,
+    jobs: Array.isArray(plain.jobs) ? plain.jobs : [],
+    agent: { ...DEFAULT_CONFIG.agent, ...(plain.agent && typeof plain.agent === 'object' ? plain.agent : {}) },
   }
 
   let parsed

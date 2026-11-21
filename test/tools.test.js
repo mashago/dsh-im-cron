@@ -133,10 +133,25 @@ test('tools: remind creates a notify job bound to the private chat address', asy
 })
 
 test('tools: group chat uses the group openid', async () => {
-  const { call, dshIm } = await harness({ chatType: 'group' })
+  const { call, dshIm } = await harness({ chatType: 'group', config: { allowGroup: true } })
   await call('imcron_remind', { text: '开会', every: { unit: 'day', count: 1, at: '09:00' } })
   assert.deepEqual(dshIm.calls.createTarget[0].target.route, { groupOpenId: 'GROUP-1' })
   assert.equal(dshIm.calls.createTarget[0].target.kind, 'group')
+})
+
+test('tools: groups cannot create tasks by default', async () => {
+  const { call } = await harness({ chatType: 'group' })
+  await assert.rejects(
+    () => call('imcron_remind', { text: '开会', every: { unit: 'day', count: 1, at: '09:00' } }),
+    (error) => error.code === 'group-disabled',
+  )
+})
+
+test('tools: the live group switch overrides the startup config', async () => {
+  const { call, imCron } = await harness({ chatType: 'group', config: { allowGroup: false } })
+  imCron.isGroupAllowed = () => true
+  const result = await call('imcron_remind', { text: '开会', every: { unit: 'day', count: 1, at: '09:00' } })
+  assert.equal(result.ok, true)
 })
 
 test('tools: ask stores the prompt, the timeout and the notify policy', async () => {
@@ -194,7 +209,7 @@ test('tools: run refuses a non-executable script', async () => {
 })
 
 test('tools: a group chat refuses the command payload entirely', async () => {
-  const { call } = await harness({ chatType: 'group' })
+  const { call } = await harness({ chatType: 'group', config: { allowGroup: true } })
   await assert.rejects(
     () => call('imcron_run', { script: 'echo.sh', cron: '0 9 * * *' }),
     (error) => error.code === 'command-not-allowed-in-group',

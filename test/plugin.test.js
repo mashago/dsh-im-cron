@@ -3,7 +3,8 @@ import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { apply, startPlugin } from '../index.js'
+import { Config, apply, startPlugin } from '../index.js'
+import { parseConfig } from '../config.js'
 
 function fakeLogger() {
   const lines = { info: [], warn: [], error: [] }
@@ -530,4 +531,18 @@ test('apply: the IM schedule guard works even when dsh-im resolves late', async 
   )
   assert.equal(blocked.isError, true)
   runtime.stop()
+})
+
+test('plugin config: allowGroup defaults to off and stays live through the Loader reference', () => {
+  const accepted = Config['~standard'].validate({ stateDir: '/tmp/state', timezone: 'Asia/Shanghai' })
+  assert.equal(accepted.issues, undefined)
+  assert.equal(accepted.value.allowGroup.get(), false)
+  // The partial schema must not drop the row's other keys.
+  assert.equal(accepted.value.stateDir, '/tmp/state')
+  assert.equal(typeof accepted.value.allowGroup.get, 'function')
+
+  // A resolved config carries the switch as a reference; parseConfig snapshots
+  // the value read at startup.
+  assert.equal(parseConfig({}).config.allowGroup, false)
+  assert.equal(parseConfig({ allowGroup: { get: () => true } }).config.allowGroup, true)
 })

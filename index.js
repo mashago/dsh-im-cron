@@ -5,6 +5,7 @@
  * unreadable state file degrades to log lines while DSH keeps running.
  */
 import { createHash } from 'node:crypto'
+import z from '@deepseek-ai/schemastery'
 import { hostTimezone, parseConfig } from './config.js'
 import { Store } from './core/store.js'
 import { createJobRunner } from './core/job.js'
@@ -15,6 +16,16 @@ import { createAgentTurn } from './core/agent-turn.js'
 
 export const name = 'im-cron'
 export const inject = []
+
+/**
+ * The Plugins page form for this row. `allowGroup` is the one runtime switch:
+ * marking it volatile lets a save land in place, and the tools read the live
+ * reference instead of the startup snapshot.
+ */
+export const Config = z.object({
+  allowGroup: z.boolean().default(false).volatile()
+    .description('群聊里是否允许使用定时任务；默认关闭'),
+})
 
 /** Native scheduling is unreliable inside a chat; imcron_* owns those tools there. */
 export const NATIVE_SCHEDULE_TOOLS = Object.freeze([
@@ -237,6 +248,21 @@ export function startPlugin(ctx, rawConfig = {}, deps = {}) {
   const { config, warnings } = parseConfig(rawConfig)
   for (const warning of warnings) logger.warn?.(`[im-cron] ${warning}`)
 
+  // The Loader's resolved config object: a volatile save updates these
+  // references in place, so the group switch needs no restart.
+  const liveConfig = rawConfig !== null && typeof rawConfig === 'object' ? rawConfig : {}
+  const liveGroupAllowed = () => {
+    const value = liveConfig.allowGroup
+    if (value !== null && typeof value === 'object' && typeof value.get === 'function') {
+      try {
+        return value.get() === true
+      } catch {
+        return config.allowGroup
+      }
+    }
+    return value === undefined ? config.allowGroup : value === true
+  }
+
   const store = new Store(config.stateDir, { logger, now: clock })
   const initial = probeDshIm(ctx, config)
   const im = createLazyChannel(ctx, config, logger)
@@ -308,6 +334,7 @@ export function startPlugin(ctx, rawConfig = {}, deps = {}) {
     config,
     channel: im,
     agent: agentTurn,
+    isGroupAllowed: liveGroupAllowed,
     get available() { return im.available },
     get reason() { return im.reason },
   }
