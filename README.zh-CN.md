@@ -4,7 +4,7 @@
 
 [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
 
-**dsh-im 的配套定时任务插件。** 给 [`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im) 补上「定时」这一层 —— 在聊天里用一句自然语言创建定时任务，到点执行，结果推回**同一个聊天**。
+**一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）插件**，给 [`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im) 补上「定时」这一层 —— 在聊天里用一句自然语言创建定时任务，到点执行，结果推回**同一个聊天**。
 
 > It is a companion plugin for dsh-im, not a standalone IM channel.
 

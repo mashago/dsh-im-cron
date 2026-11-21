@@ -4,7 +4,7 @@
 
 [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
 
-**Scheduled tasks for [`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im).** It adds the "when" layer to IM chats — create a scheduled task in natural language, let it run on time, and push the result back to **the same chat**.
+**A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) plugin that adds scheduled tasks to IM chats** — for [`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im). Create a task in natural language, let it run on time, and the result lands back in **the same chat**.
 
 > It is a companion plugin for dsh-im, not a standalone IM channel.
 
