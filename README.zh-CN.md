@@ -28,8 +28,9 @@
 投递通过 dsh-im 暴露的 `dshIm` 服务（`contractVersion: 1`）完成，本插件**不 import dsh-im 的任何代码**，
 只按服务契约调用 `send` / `describeConversation` / `resolveTarget`。
 
-**没装 dsh-im 时**：任务照样能建、能执行、能记 `runs.jsonl`，但**没有投递通道** ——
-启动日志会显示 `delivery=pending`，每次运行的 `deliver.status` 记 `skipped`。
+**没装 dsh-im 时**：配置里声明的 `jobs`（自带 target）照样能执行、能记 `runs.jsonl`，但**没有投递通道** ——
+启动日志会显示 `delivery=pending`，投递会退避重试，运行记录里 `deliver.status` 为 `pending`。
+在聊天里创建任务需要 dsh-im，因为投递目标要从会话解析出来。
 
 ```text
 你（QQ）：每天早上 9 点提醒我写日报
@@ -579,7 +580,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。
 
 ```bash
 npm install
-npm test          # node --test，189 个用例
+npm test          # node --test，192 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、

@@ -287,7 +287,6 @@ export function startPlugin(ctx, rawConfig = {}, deps = {}) {
   const im = createLazyChannel(ctx, config, logger)
   if (!initial.available) {
     logger.warn?.(`[im-cron] delivery=pending（${initial.reason}）—— 每次使用时会重试探测`)
-    if (config.requireChannel) logger.warn?.('[im-cron] requireChannel=true：不会创建需要投递的任务')
   }
 
   const agentTurn = createAgentTurn({ ctx, config, logger, now: clock, pollMs: (config.pollSeconds ?? 30) * 1000 })

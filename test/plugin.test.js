@@ -148,7 +148,6 @@ test('apply: without dshIm the plugin still runs commands and records skipped de
   const ctx = fakeCtx()
   const runtime = startPlugin(ctx, {
     stateDir: dir,
-    requireChannel: false,
     timezone: 'Asia/Shanghai',
     jobs: [{
       id: 'decl-hello',
@@ -179,7 +178,6 @@ test('apply: a broken declared job is skipped, the rest still load', async () =>
   let nowMs = Date.parse('2026-11-20T01:00:00+08:00')
   const runtime = startPlugin(ctx, {
     stateDir: dir,
-    requireChannel: false,
     jobs: [
       { id: 'decl-bad', name: '坏任务', schedule: { at: '2020-01-01T00:00:00Z' }, payload: { kind: 'notify', text: 'x' } },
       { id: 'decl-ok', name: '好任务', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text: 'y' } },
@@ -197,7 +195,6 @@ test('apply: a declared job removed from config is deleted on the next start', a
   const nowMs = Date.parse('2026-11-20T01:00:00+08:00')
   const first = startPlugin(fakeCtx(), {
     stateDir: dir,
-    requireChannel: false,
     jobs: [
       { id: 'decl-keep', name: '保留', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text: 'a' } },
       { id: 'decl-drop', name: '删除', schedule: { cron: '0 10 * * *' }, payload: { kind: 'notify', text: 'b' } },
@@ -220,7 +217,6 @@ test('apply: a declared job removed from config is deleted on the next start', a
   const ctx = fakeCtx()
   const second = startPlugin(ctx, {
     stateDir: dir,
-    requireChannel: false,
     jobs: [
       { id: 'decl-keep', name: '保留', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text: 'a' } },
     ],
@@ -236,7 +232,6 @@ test('apply: changing a declared payload replaces the job instead of duplicating
   const nowMs = Date.parse('2026-11-20T01:00:00+08:00')
   const configWith = (text) => ({
     stateDir: dir,
-    requireChannel: false,
     jobs: [{ name: '日报', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text } }],
   })
 
@@ -258,7 +253,6 @@ test('apply: an invalid declaration does not prune the other declared jobs', asy
   const nowMs = Date.parse('2026-11-20T01:00:00+08:00')
   const first = startPlugin(fakeCtx(), {
     stateDir: dir,
-    requireChannel: false,
     jobs: [
       { id: 'decl-keep', name: '保留', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text: 'a' } },
       { id: 'decl-drop', name: '暂时缺失', schedule: { cron: '0 10 * * *' }, payload: { kind: 'notify', text: 'b' } },
@@ -270,7 +264,6 @@ test('apply: an invalid declaration does not prune the other declared jobs', asy
   const ctx = fakeCtx()
   const second = startPlugin(ctx, {
     stateDir: dir,
-    requireChannel: false,
     jobs: [
       { id: 'decl-keep', name: '保留', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text: 'a' } },
       { id: 'decl-bad', name: '坏的', schedule: { at: '2020-01-01T00:00:00Z' }, payload: { kind: 'notify', text: 'x' } },
@@ -306,7 +299,7 @@ test('apply: an invalid config is marked degraded and does not prune declared jo
 test('apply: the removed catchUp setting warns and is ignored', async () => {
   const dir = await tempDir()
   const ctx = fakeCtx()
-  const runtime = startPlugin(ctx, { stateDir: dir, requireChannel: false, catchUp: 'once' }, { now: () => new Date() })
+  const runtime = startPlugin(ctx, { stateDir: dir, catchUp: 'once' }, { now: () => new Date() })
   await runtime.ready
   assert.match(ctx.loggerObj.lines.warn.join('\n'), /catchUp 已移除/u)
   assert.equal(runtime.config.catchUp, undefined)
@@ -325,7 +318,7 @@ test('apply: never throws on garbage configuration', async () => {
 test('effect: the registered disposer stops polling', async () => {
   const dir = await tempDir()
   const ctx = fakeCtx()
-  const runtime = startPlugin(ctx, { stateDir: dir, requireChannel: false }, { now: () => new Date() })
+  const runtime = startPlugin(ctx, { stateDir: dir }, { now: () => new Date() })
   await runtime.ready
   assert.equal(typeof ctx.effects[0], 'function')
   const disposer = ctx.effects[0]()
@@ -536,7 +529,7 @@ test('apply: native schedule tools are denied for IM-bound agents only', async (
     sessionId === 'session-im' ? { channel: 'qq', botId: 'bot-1', chatType: 'dm', chatId: null, senderId: 'OPENID-1' } : null
   )
   const ctx = fakeCtx({ service: dshIm.service })
-  const runtime = startPlugin(ctx, { stateDir: dir, requireChannel: false }, { now: () => new Date() })
+  const runtime = startPlugin(ctx, { stateDir: dir }, { now: () => new Date() })
   await runtime.ready
 
   const agent = (sessionId) => ({
@@ -557,7 +550,7 @@ test('apply: an agent without a scoped tools service does not break creation', a
   const dshIm = fakeDshIm()
   dshIm.service.describeConversationSync = () => ({ chatType: 'dm' })
   const ctx = fakeCtx({ service: dshIm.service })
-  const runtime = startPlugin(ctx, { stateDir: dir, requireChannel: false }, { now: () => new Date() })
+  const runtime = startPlugin(ctx, { stateDir: dir }, { now: () => new Date() })
   await runtime.ready
   assert.doesNotThrow(() => ctx.emit('agent/created', { agent: { session: { id: 'session-1' } } }))
   runtime.stop()
@@ -574,7 +567,7 @@ test('guard: native schedule calls from an IM session are blocked with an imcron
     sessionId === 'session-im' ? { channel: 'qq', botId: 'bot-1', chatType: 'dm', chatId: null, senderId: 'OPENID-1' } : null
   )
   const ctx = fakeCtx({ service: dshIm.service })
-  const runtime = startPlugin(ctx, { stateDir: dir, requireChannel: false }, { now: () => new Date() })
+  const runtime = startPlugin(ctx, { stateDir: dir }, { now: () => new Date() })
   await runtime.ready
 
   const calls = []
@@ -615,7 +608,6 @@ test('apply: the channel is resolved lazily when dsh-im appears after boot', asy
   const ctx = fakeCtx({ services })
   const runtime = startPlugin(ctx, {
     stateDir: dir,
-    requireChannel: false,
     jobs: [{
       id: 'decl-late',
       name: '晚到的渠道',
@@ -647,7 +639,7 @@ test('apply: the IM schedule guard works even when dsh-im resolves late', async 
   dshIm.service.describeConversation = async () => ({ chatType: 'dm' })
   const services = {}
   const ctx = fakeCtx({ services })
-  const runtime = startPlugin(ctx, { stateDir: dir, requireChannel: false }, { now: () => new Date() })
+  const runtime = startPlugin(ctx, { stateDir: dir }, { now: () => new Date() })
   await runtime.ready
   services.dshIm = dshIm.service
 

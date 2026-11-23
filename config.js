@@ -33,7 +33,6 @@ const AgentSchema = z.object({
 
 export const ConfigSchema = z.object({
   channel: z.string().min(1).optional(),
-  requireChannel: z.boolean().optional(),
   stateDir: z.string().min(1).nullable().optional(),
   pollSeconds: z.number().int().min(5).max(3_600).optional(),
   defaultTimeoutSeconds: z.number().int().min(1).max(86_400).optional(),
@@ -56,7 +55,6 @@ export const ConfigSchema = z.object({
 
 export const DEFAULT_CONFIG = Object.freeze({
   channel: 'dshIm',
-  requireChannel: true,
   stateDir: null,
   pollSeconds: 30,
   defaultTimeoutSeconds: 600,

@@ -112,6 +112,15 @@ test('tools: all eight tools register with model-facing descriptions', async () 
   }
 })
 
+test('tools: creating a task needs a ready channel', async () => {
+  const { call, imCron } = await harness()
+  imCron.available = false
+  await assert.rejects(
+    () => call('imcron_remind', { text: 'x', cron: '0 9 * * *' }),
+    (error) => error.code === 'channel-unavailable',
+  )
+})
+
 test('tools: remind creates a notify job bound to the private chat address', async () => {
   const { call, scheduler, dshIm } = await harness()
   const result = await call('imcron_remind', { text: '写日报', cron: '0 9 * * *' })

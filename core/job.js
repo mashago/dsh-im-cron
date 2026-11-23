@@ -8,7 +8,7 @@
 import { runCommand as defaultExec } from './exec.js'
 import { diag } from '../diag.js'
 
-const RETRYABLE_PENDING = new Set(['bot-not-connected', 'cancelled', 'provider-unavailable'])
+const RETRYABLE_PENDING = new Set(['bot-not-connected', 'cancelled', 'provider-unavailable', 'channel-unavailable'])
 const NEEDS_REBIND = new Set(['unknown-bot', 'unknown-target'])
 const UNRETRYABLE = new Set([
   'bad-request',

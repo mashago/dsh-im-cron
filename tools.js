@@ -191,7 +191,7 @@ function createToolRuntime(ctx) {
     }
   }
 
-  function requireChannel(im) {
+  function channelOrThrow(im) {
     if (im.channel === null || im.channel === undefined) {
       throw new ToolError('channel-unavailable', '当前没有可用的 IM 渠道，无法建投递任务')
     }
@@ -248,7 +248,7 @@ function createToolRuntime(ctx) {
 
   /** Target of the calling chat, without creating one; null when it has none. */
   async function existingTarget(im, sessionId) {
-    const channel = requireChannel(im)
+    const channel = channelOrThrow(im)
     return await channel.describeTarget(sessionId)
   }
 
@@ -268,7 +268,10 @@ function createToolRuntime(ctx) {
   }
 
   async function createJob({ im, exec, schedule, payload, deliver, maxRuns }) {
-    const channel = requireChannel(im)
+    const channel = channelOrThrow(im)
+    if (im.available !== true) {
+      throw new ToolError('channel-unavailable', '当前没有可用的 IM 渠道，无法建投递任务')
+    }
     const sessionId = sessionIdOf(exec)
     if (jobCount(im) >= im.config.maxJobs) {
       throw new ToolError('too-many-jobs', `任务总数已达上限 ${im.config.maxJobs}`)

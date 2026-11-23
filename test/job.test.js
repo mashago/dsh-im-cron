@@ -152,6 +152,43 @@ test('job: pending delivery is retried with backoff and can succeed', async () =
   assert.equal(record.deliver.attempts, 2)
 })
 
+test('job: a channel that is not ready is retried, not failed', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imcron-job-'))
+  const { config } = parseConfig({ stateDir: dir })
+  const store = new Store(dir)
+  const attempts = []
+  const send = async () => {
+    attempts.push('try')
+    return attempts.length === 1
+      ? { status: 'failed', error: 'channel-unavailable' }
+      : { status: 'sent' }
+  }
+  const sleeps = []
+  const runner = createJobRunner({ store, config, logger: null, now: () => NOW, send, sleep: async (ms) => sleeps.push(ms) })
+  const { record } = await runner.run({ job: job(), occurrence: NOW })
+  assert.equal(attempts.length, 2)
+  assert.deepEqual(sleeps, [5_000])
+  assert.equal(record.deliver.status, 'sent')
+})
+
+test('job: an unavailable channel ends as pending after the backoff', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imcron-job-'))
+  const { config } = parseConfig({ stateDir: dir })
+  const store = new Store(dir)
+  const attempts = []
+  const send = async () => {
+    attempts.push('try')
+    return { status: 'failed', error: 'channel-unavailable' }
+  }
+  const sleeps = []
+  const runner = createJobRunner({ store, config, logger: null, now: () => NOW, send, sleep: async (ms) => sleeps.push(ms) })
+  const { record } = await runner.run({ job: job(), occurrence: NOW })
+  assert.equal(attempts.length, 3)
+  assert.deepEqual(sleeps, [5_000, 30_000])
+  assert.equal(record.deliver.status, 'pending')
+  assert.equal(record.deliver.error, 'channel-unavailable')
+})
+
 test('job: a markdown refusal falls back to plain text once', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'imcron-job-'))
   const { config } = parseConfig({ stateDir: dir })

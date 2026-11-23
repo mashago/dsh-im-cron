@@ -27,7 +27,7 @@ This plugin **does not connect to QQ, send messages, or manage sessions**. It on
 
 Delivery goes through the `dshIm` service exposed by dsh-im (`contractVersion: 1`). This plugin **does not import any dsh-im code**; it only calls `send` / `describeConversation` / `resolveTarget` per the service contract.
 
-**Without dsh-im installed**: tasks can still be created, executed, and logged to `runs.jsonl`, but there is **no delivery channel** — the startup log shows `delivery=pending`, and every run records `deliver.status: skipped`.
+**Without dsh-im installed**: tasks already declared in `jobs` (with an explicit target) still run and are logged to `runs.jsonl`, but there is **no delivery channel** — the startup log shows `delivery=pending`, delivery is retried with backoff, and the run records `deliver.status: pending`. Creating a new task from a chat needs dsh-im, because the delivery target is resolved from the conversation.
 
 ```text
 You (QQ): remind me to write the daily report every morning at 9
@@ -261,7 +261,6 @@ Rules:
 | Key | Default | Description |
 |---|---|---|
 | `channel` | `dshIm` | channel id (only dsh-im today) |
-| `requireChannel` | `true` | refuse to create tasks that need delivery when dsh-im is missing |
 | `stateDir` | `$DSH_HOME/im-cron` | state directory |
 | `scriptDir` | `<stateDir>/workspace` | script directory, see [Script payload](#script-payload). **The plugin does not create it** |
 | `timezone` | host time zone | default zone for parsing / displaying schedules |
@@ -581,7 +580,7 @@ Under `npm test` it never writes.
 
 ```bash
 npm install
-npm test          # node --test, 189 cases
+npm test          # node --test, 192 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`,
