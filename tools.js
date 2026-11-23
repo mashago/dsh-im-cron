@@ -149,6 +149,12 @@ function jobStatus(job) {
   return job.enabled === true ? '启用' : '暂停'
 }
 
+/** Human-readable form of a job's internal `state` for the list render. */
+function jobStateLabel(state) {
+  if (state === 'needs-rebind') return '投递目标失效（修复后用 imcron_resume）'
+  return String(state)
+}
+
 function createToolRuntime(ctx) {
   const runtime = () => {
     const service = ctx.get('imCron')
@@ -518,7 +524,7 @@ function createToolRuntime(ctx) {
       },
       render: (_args, value) => textResult(value.jobs.length === 0
         ? '（这个聊天还没有定时任务）'
-        : value.jobs.map((job) => `${job.id} ${job.name} · ${job.schedule} · ${payloadLabel(job)}${job.maxRuns === undefined ? '' : ` · 已跑 ${job.runsDone}/${job.maxRuns}`} · 下次 ${job.nextRunAt || '-'} · ${jobStatus(job)}${job.state === undefined ? '' : ` · ${job.state}`}`).join('\n')),
+        : value.jobs.map((job) => `${job.id} ${job.name} · ${job.schedule} · ${payloadLabel(job)}${job.maxRuns === undefined ? '' : ` · 已跑 ${job.runsDone}/${job.maxRuns}`} · 下次 ${job.nextRunAt || '-'} · ${jobStatus(job)}${job.state === undefined ? '' : ` · ${jobStateLabel(job.state)}`}`).join('\n')),
     },
     async execute(_args, exec) {
       const im = runtime()
@@ -574,7 +580,8 @@ function createToolRuntime(ctx) {
       + 'Every argument is optional: an omitted one keeps its current value, so send only what changes. '
       + 'The payload type can NOT be changed (delete and recreate to switch between reminder, command and model task), '
       + 'and the target chat can not be changed. '
-      + 'Changing the schedule re-anchors it, so slots that belonged to the old schedule never fire. '
+      + 'Changing the schedule re-anchors it, so slots that belonged to the old schedule never fire; '
+      + 'it also re-arms a job paused by a delivery error (needs-rebind). '
       + 'Use it for "move my daily report to 10:00" or "stop pushing the backup output", not for re-creating a task.',
     parameters: {
       type: 'object',
@@ -609,6 +616,9 @@ function createToolRuntime(ctx) {
         // Re-anchor: never fire for a slot that existed under the old schedule.
         next.lastFiredFor = new Date().toISOString()
         delete next.endedAt
+        // A schedule change is an explicit re-arm: clear a delivery-failure state
+        // too, otherwise the job stays unrunnable until imcron_resume is called.
+        if (next.state === 'needs-rebind') delete next.state
       }
 
       if (args.text !== undefined) {
@@ -702,6 +712,7 @@ function createToolRuntime(ctx) {
   tools.imcron_resume = {
     name: 'imcron_resume',
     description: 'Resume a paused job of this chat. Slots missed while it was paused are skipped; the next future slot runs. '
+      + 'It also clears the needs-rebind delivery state after the target has been fixed. '
       + 'Use imcron_trigger to run it once immediately.',
     parameters: {
       type: 'object',

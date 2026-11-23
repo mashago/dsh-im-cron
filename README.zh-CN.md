@@ -533,7 +533,7 @@ examples/            示例配置与演示脚本
 | 现象 | 先看 | 处理 |
 |---|---|---|
 | 到点没跑 | `cli.js list` 的 `下次`、`cli.js doctor` 的任务计数 | 确认 DSH 在跑、任务 `启用`。精度靠定时器，`pollSeconds` 只是兜底 |
-| 跑了但没收到 | `runs.jsonl` 的 `deliver.status` / `error` | `bot-not-connected` 等重连；`unknown-target` → 任务转 `needs-rebind` |
+| 跑了但没收到 | `runs.jsonl` 的 `deliver.status` / `error` | `bot-not-connected` 等重连；`unknown-target` → 任务转 `needs-rebind`；修好目标后 `imcron_resume`（或改用 `imcron_update` 改一次排期） |
 | 模型说"建不了任务" | 聊天是否在 QQ、`allowGroup`、`allowChannels` | 工具只在 IM 会话里可用；Web 里会提示去 QQ |
 | 模型没调 `imcron_*` | preset 是否屏蔽了工具 | 检查 profile / preset 的工具集 |
 | agent 任务一直跳过 | `result.reason` | `running` = 上一轮没结束；`busy` = 超出 `maxConcurrent` |
@@ -581,7 +581,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。
 
 ```bash
 npm install
-npm test          # node --test，196 个用例
+npm test          # node --test，198 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、

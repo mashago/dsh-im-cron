@@ -295,6 +295,31 @@ test('tools: update moves a schedule and refuses payload-type changes', async ()
   )
 })
 
+test('tools: a schedule update re-arms a needs-rebind job and the list explains it', async () => {
+  const { call, definitions, scheduler } = await harness()
+  const created = await call('imcron_remind', { text: '日报', cron: '0 9 * * *' })
+  await scheduler.upsertJob({ ...scheduler.getJob(created.id), state: 'needs-rebind' })
+
+  const listed = await call('imcron_list')
+  const text = definitions.get('imcron_list').output.render({}, listed)[0].text
+  assert.match(text, /投递目标失效.*imcron_resume/u)
+
+  await call('imcron_update', { id: created.id, cron: '0 10 * * *' })
+  const job = scheduler.getJob(created.id)
+  assert.equal(job.state, undefined)
+  assert.equal(job.schedule.expression, '0 10 * * *')
+})
+
+test('tools: a text-only update leaves needs-rebind alone', async () => {
+  const { call, scheduler } = await harness()
+  const created = await call('imcron_remind', { text: '旧文案', cron: '0 9 * * *' })
+  await scheduler.upsertJob({ ...scheduler.getJob(created.id), state: 'needs-rebind' })
+
+  await call('imcron_update', { id: created.id, text: '新文案' })
+  assert.equal(scheduler.getJob(created.id).state, 'needs-rebind')
+  assert.equal(scheduler.getJob(created.id).payload.text, '新文案')
+})
+
 test('tools: another chat job id is indistinguishable from missing', async () => {
   const { call, scheduler } = await harness()
   // Give this chat its own target so the comparison is about ownership, not about

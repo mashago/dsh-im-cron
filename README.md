@@ -532,7 +532,7 @@ The adapter is concentrated in `channel/dsh-im.js` — switching channels or fol
 | Symptom | Look at first | Fix |
 |---|---|---|
 | did not run on time | `下次` (next) in `cli.js list`, task count in `cli.js doctor` | confirm DSH is running and the task is `启用` (enabled). Precision comes from the timer; `pollSeconds` is only a fallback |
-| ran but nothing arrived | `deliver.status` / `error` in `runs.jsonl` | `bot-not-connected` etc. → reconnect; `unknown-target` → the task becomes `needs-rebind` |
+| ran but nothing arrived | `deliver.status` / `error` in `runs.jsonl` | `bot-not-connected` etc. → reconnect; `unknown-target` → the task becomes `needs-rebind`; fix the target, then `imcron_resume` (or change the schedule once with `imcron_update`) |
 | the model says "can't create a task" | whether the chat is on QQ, `allowGroup`, `allowChannels` | the tools only work in IM sessions; Web sessions are told to go to QQ |
 | the model never calls `imcron_*` | does the preset hide the tools | check the profile / preset tool set |
 | an agent task is always skipped | `result.reason` | `running` = the previous run has not finished; `busy` = over `maxConcurrent` |
@@ -581,7 +581,7 @@ Under `npm test` it never writes.
 
 ```bash
 npm install
-npm test          # node --test, 196 cases
+npm test          # node --test, 198 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`,
