@@ -152,7 +152,41 @@ test('scheduler: paused, broken and ended jobs are skipped', async () => {
   assert.equal(calls.length, 0)
 })
 
-test('scheduler: a concurrent tick is a no-op (single pass)', async () => {
+test('scheduler: a slow run does not hold up another due job', async () => {
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const started = []
+  const { scheduler, clock } = await setup({
+    runner: {
+      run: async ({ job }) => {
+        started.push(job.id)
+        if (job.id === 'imc-slow') await gate
+        return { patch: {} }
+      },
+    },
+  })
+  const nowMs = clock.now.getTime()
+  await scheduler.upsertJob(atJob(nowMs - 10_000, { id: 'imc-slow' }))
+
+  // The pass returns while the payload is still blocked on the gate. Before the
+  // fix this line never ran until the run finished.
+  const first = await scheduler.tick()
+  assert.deepEqual(first.fired.map((entry) => entry.jobId), ['imc-slow'])
+  assert.deepEqual(started, ['imc-slow'])
+
+  // A job that becomes due during the slow run is fired by the next pass instead
+  // of queueing behind it.
+  await scheduler.upsertJob(atJob(nowMs - 5_000, { id: 'imc-fast' }))
+  const second = await scheduler.tick()
+  assert.deepEqual(second.fired.map((entry) => entry.jobId), ['imc-fast'])
+  assert.deepEqual(started, ['imc-slow', 'imc-fast'])
+
+  release()
+  await scheduler.settle()
+  for (const job of scheduler.listJobs()) assert.equal(job.inflight, undefined)
+})
+
+test('scheduler: a run still in flight is skipped by the next pass, not queued', async () => {
   let release
   const gate = new Promise((resolve) => { release = resolve })
   const calls = []
@@ -161,17 +195,35 @@ test('scheduler: a concurrent tick is a no-op (single pass)', async () => {
       run: async ({ job }) => {
         calls.push(job.id)
         await gate
-        return { record: {}, patch: {} }
+        return { patch: {} }
       },
     },
   })
-  await scheduler.upsertJob(atJob(clock.now.getTime() - 10_000))
-  const running = scheduler.tick()
-  const overlapping = await scheduler.tick()
-  assert.deepEqual(overlapping, { fired: [], skipped: [] })
-  release()
-  await running
+  const anchorMs = Math.floor(clock.now.getTime() / 60_000) * 60_000
+  await scheduler.upsertJob({
+    id: 'imc-every',
+    name: '每分钟',
+    schedule: { kind: 'every', unit: 'minute', count: 1, at: null, timezone: 'Asia/Shanghai', anchor: new Date(anchorMs).toISOString() },
+    payload: { kind: 'notify', text: 'tick' },
+    deliver: 'never',
+    enabled: true,
+    createdAt: new Date(anchorMs - 600_000).toISOString(),
+    lastFiredFor: new Date(anchorMs - 1_000).toISOString(),
+  })
+
+  clock.now = new Date(anchorMs + 30_000)
+  const first = await scheduler.tick()
+  assert.deepEqual(first.fired.map((entry) => entry.jobId), ['imc-every'])
+
+  // The +60s slot is due now, but the previous run has not settled.
+  clock.now = new Date(anchorMs + 90_000)
+  const second = await scheduler.tick()
+  assert.deepEqual(second.fired, [])
+  assert.deepEqual(second.skipped, [{ jobId: 'imc-every', reason: 'running' }])
   assert.equal(calls.length, 1)
+
+  release()
+  await scheduler.settle()
 })
 
 test('scheduler: expired ended jobs are pruned', async () => {
@@ -254,6 +306,7 @@ test('scheduler: a claim is durably written before the payload runs', async () =
   await scheduler.upsertJob(atJob(at))
   clock.now = new Date(at + 500)
   await scheduler.tick()
+  await scheduler.settle()
   assert.equal(seen.lastFiredFor, new Date(at).toISOString())
   assert.equal(seen.endedAt !== null, true)
   assert.equal(seen.inflight, new Date(at).toISOString())
@@ -368,12 +421,14 @@ test('scheduler: maxRuns ends the job after that many scheduled runs', async () 
   // Stay inside the freshness window so each slot counts as on time.
   clock.now = new Date(anchorMs + 59_000)
   await scheduler.tick()
+  await scheduler.settle()
   let job = await scheduler.getJob('imc-at')
   assert.equal(job.runsDone, 1)
   assert.equal(job.endedAt, undefined)
 
   clock.now = new Date(anchorMs + 118_000)
   await scheduler.tick()
+  await scheduler.settle()
   job = await scheduler.getJob('imc-at')
   assert.equal(job.runsDone, 2)
   assert.ok(job.endedAt !== undefined)

@@ -375,13 +375,21 @@ export function createScheduler({
         logger?.error?.(`[im-cron] 任务 ${job.id} 执行异常：${errorText(error)}`)
       } finally {
         release(job)
+        // The budget is settled with the run, not with the scheduling pass: a
+        // claimed occurrence counts even if the payload fails, exactly as it did
+        // when `tick` awaited the run.
+        countScheduledRun(job)
         inFlight.delete(job.id)
         dirty = true
         await persist()
       }
     })()
     inFlight.set(job.id, task)
-    await task
+    // Fire-and-forget: the pass must not wait for the payload. Waiting here meant
+    // one slow turn (default: 900s soft / 1800s hard deadline) held up every other
+    // due job and kept the `running` guard closed, so the fallback sweep could not
+    // run either. `settle()` is the join point for tests and shutdown.
+    void task.catch((error) => logger?.error?.(`[im-cron] 任务 ${job.id} 结算异常：${errorText(error)}`))
     return { skipped: null }
   }
 
@@ -504,7 +512,6 @@ export function createScheduler({
           skipped.push({ jobId: job.id, reason: result.skipped })
         } else {
           fired.push({ jobId: job.id, occurrence: toRun.toISOString() })
-          countScheduledRun(job)
         }
       }
 
@@ -631,10 +638,23 @@ export function createScheduler({
     return () => listeners.delete(listener)
   }
 
+  /**
+   * Wait until every run started by {@link tick} has settled.
+   *
+   * The scheduling pass no longer blocks on payloads, so callers that need the
+   * finished run records (tests, a future graceful shutdown) join here instead.
+   */
+  async function settle() {
+    while (inFlight.size > 0) {
+      await Promise.allSettled([...inFlight.values()])
+    }
+  }
+
   return {
     start,
     stop,
     tick,
+    settle,
     runNow,
     listJobs,
     getJob,

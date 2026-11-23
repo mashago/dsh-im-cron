@@ -127,6 +127,7 @@ test('apply: a declared command job fires and pushes through dshIm', async () =>
 
   nowMs += 61_000
   const due = await runtime.scheduler.tick()
+  await runtime.scheduler.settle()
   assert.deepEqual(due.fired.map((entry) => entry.jobId), ['decl-hello'])
   assert.equal(dshIm.sent.length, 1)
   assert.equal(dshIm.sent[0].text, '任务输出')
@@ -163,6 +164,7 @@ test('apply: without dshIm the plugin still runs commands and records skipped de
 
   nowMs += 61_000
   await runtime.scheduler.tick()
+  await runtime.scheduler.settle()
   const runs = await runtime.store.readRuns({ limit: 5 })
   assert.equal(runs.length, 1)
   assert.equal(runs[0].result.kind, 'ok')
@@ -297,6 +299,7 @@ test('apply: an agent job runs a turn, delivers the answer and remembers the ses
 
   nowMs += 61_000
   const tick = await runtime.scheduler.tick()
+  await runtime.scheduler.settle()
   assert.deepEqual(tick.fired.map((entry) => entry.jobId), ['decl-news'])
   assert.equal(dshIm.sent.length, 1)
   assert.equal(dshIm.sent[0].text, '汇总结果：三条要闻')
@@ -335,6 +338,7 @@ test('apply: agent payload with deliver "never" records the answer without sendi
   await runtime.ready
   nowMs += 61_000
   await runtime.scheduler.tick()
+  await runtime.scheduler.settle()
   assert.equal(dshIm.sent.length, 0)
   const runs = await runtime.store.readRuns({ limit: 5 })
   assert.equal(runs[0].deliver.status, 'skipped')
@@ -365,6 +369,7 @@ test('apply: a long body is handed to dsh-im whole (no pre-chunking)', async () 
   await runtime.ready
   nowMs += 61_000
   await runtime.scheduler.tick()
+  await runtime.scheduler.settle()
   assert.equal(dshIm.sent.length, 1, 'one send call, dsh-im owns the chunking')
   assert.equal(dshIm.sent[0].text.length, 3_000)
   runtime.stop()
@@ -395,6 +400,7 @@ test('apply: delivery keeps working after the chat session is rebound (/new)', a
   nowMs = Date.parse('2026-11-20T09:00:30+08:00')
   await runtime.scheduler.tick()
   await runtime.scheduler.tick()
+  await runtime.scheduler.settle()
   assert.equal(dshIm.sent.length, 1)
   assert.equal(dshIm.sent[0].targetId, 'cron-1')
   runtime.stop()
@@ -506,6 +512,7 @@ test('apply: the channel is resolved lazily when dsh-im appears after boot', asy
 
   nowMs += 61_000
   await runtime.scheduler.tick()
+  await runtime.scheduler.settle()
   assert.equal(dshIm.sent.length, 1)
   assert.equal(dshIm.sent[0].text, '渠道稍后才就绪')
   assert.equal(ctx.provided.get('imCron').available, true)
