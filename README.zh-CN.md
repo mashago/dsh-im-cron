@@ -262,7 +262,6 @@ dsh --profile web --dump-config | grep im-cron
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `channel` | `dshIm` | 渠道标识（当前仅 dsh-im） |
-| `requireChannel` | `true` | 探测不到 dsh-im 时拒绝创建需要投递的任务 |
 | `stateDir` | `$DSH_HOME/im-cron` | 状态目录 |
 | `scriptDir` | `<stateDir>/workspace` | 脚本目录，见[脚本载荷](#脚本载荷)。**插件不创建它** |
 | `timezone` | 宿主时区 | 排期解析 / 展示的默认时区 |
@@ -281,8 +280,6 @@ dsh --profile web --dump-config | grep im-cron
 | `agent.maxConcurrent` | `2` | 同时运行的 agent 回合上限 |
 | `agent.permissionPreset` | 空 | 任务会话的权限档，见[权限档](#权限档) |
 | `agent.taskSessionMaxAgeDays` | `30` | 任务会话超过这个天数换新 |
-| `agent.attachWorkspace` | `false` | 任务会话是否挂进 workspace |
-| `agent.echoToChat` | `false` | 跑完是否把摘要 inject 回聊天会话 |
 
 单项配置非法时只会让该字段回退默认值，并在启动日志里报告；其余配置（包括 `stateDir`）保持不变。
 

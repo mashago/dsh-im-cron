@@ -29,8 +29,6 @@ const AgentSchema = z.object({
   maxConcurrent: z.number().int().min(1).max(16).optional(),
   permissionPreset: z.string().nullable().optional(),
   taskSessionMaxAgeDays: z.number().int().min(1).max(3_650).optional(),
-  attachWorkspace: z.boolean().optional(),
-  echoToChat: z.boolean().optional(),
 })
 
 export const ConfigSchema = z.object({
@@ -79,8 +77,6 @@ export const DEFAULT_CONFIG = Object.freeze({
     maxConcurrent: 2,
     permissionPreset: null,
     taskSessionMaxAgeDays: 30,
-    attachWorkspace: false,
-    echoToChat: false,
   },
 })
 

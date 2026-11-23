@@ -280,8 +280,6 @@ Rules:
 | `agent.maxConcurrent` | `2` | cap on concurrently running agent turns |
 | `agent.permissionPreset` | empty | permission preset for task sessions, see [Permission preset](#permission-preset) |
 | `agent.taskSessionMaxAgeDays` | `30` | rotate a task session older than this |
-| `agent.attachWorkspace` | `false` | whether task sessions join a workspace |
-| `agent.echoToChat` | `false` | whether the digest is injected back into the chat session |
 
 An invalid value falls back to that field's default and is reported in the startup log; the rest of the
 configuration (including `stateDir`) is kept.

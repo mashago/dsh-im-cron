@@ -29,8 +29,6 @@
           maxConcurrent: 2
           permissionPreset: null
           taskSessionMaxAgeDays: 30
-          attachWorkspace: false
-          echoToChat: false
 
     # 模型面工具必须单独一行，否则聊天里无法创建任务。
     - id: im-cron-tools
