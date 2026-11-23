@@ -11,6 +11,7 @@
  * upgraded service degrades to a log line instead of a crash.
  */
 import { createHash } from 'node:crypto'
+import { SUPPORTED_CHANNELS } from '../config.js'
 
 export const REQUIRED_METHODS = Object.freeze(['send', 'describeConversation', 'createTarget', 'listTargets'])
 const TARGET_ID_PATTERN = /^[A-Za-z0-9._:@-]{1,128}$/
@@ -65,6 +66,85 @@ function channelError(code, message) {
 }
 
 /**
+ * dsh-im route shapes per channel. `user` is a direct chat, `group` a group
+ * chat; a channel/kind without a builder cannot be addressed and is rejected.
+ * Keep in sync with dsh-im's `normalizeRoute` (delivery-adapter.mjs).
+ */
+const ROUTE_BUILDERS = Object.freeze({
+  qq: {
+    user: (address) => ({ kind: 'user', route: { userOpenId: address } }),
+    group: (address) => ({ kind: 'group', route: { groupOpenId: address } }),
+  },
+  feishu: {
+    user: (address) => ({ kind: 'user', route: { openId: address } }),
+  },
+  weixin: {
+    user: (address) => ({ kind: 'user', route: { toUserId: address } }),
+  },
+  dingtalk: {
+    user: (address) => ({ kind: 'user', route: { userId: address } }),
+    group: (address) => ({ kind: 'group', route: { openConversationId: address } }),
+  },
+  wecom: {
+    user: (address) => ({ kind: 'user', route: { chatId: address } }),
+    group: (address) => ({ kind: 'group', route: { chatId: address } }),
+  },
+})
+
+/**
+ * Translate one `describeConversation()` result into a dsh-im target shape.
+ * Pure apart from the thrown errors; exported so the route table is testable
+ * without a fake service.
+ * @param {object | null | undefined} described
+ * @param {{ allowChannels?: string[], allowGroup?: boolean }} [options]
+ * @returns {{ botId: string, kind: 'user'|'group', route: object, address: string, channel: string, chatType: string }}
+ */
+export function routeForConversation(described, { allowChannels = SUPPORTED_CHANNELS, allowGroup = true } = {}) {
+  if (described === null || described === undefined) {
+    throw channelError('not-an-im-session', '当前会话不在任何 IM 渠道上，无法回推；请在 IM 聊天里创建')
+  }
+  const channel = described.channel
+  if (typeof channel !== 'string' || channel === '') {
+    throw channelError('channel-unsupported', '拿不到当前渠道标识，无法建立投递目标')
+  }
+  if (!allowChannels.includes(channel)) {
+    throw channelError('channel-disabled', `当前渠道 ${channel} 未启用（allowChannels）`)
+  }
+
+  const chatType = described.chatType
+  if (chatType === 'thread') {
+    throw channelError('thread-unsupported', `${channel} 的话题会话暂不支持定时任务，请改用私聊`)
+  }
+  if (chatType !== 'dm' && chatType !== 'group') {
+    throw channelError('unsupported-chat-type', `暂不支持的会话类型 ${String(chatType)}`)
+  }
+  const kind = chatType === 'group' ? 'group' : 'user'
+  if (kind === 'group' && allowGroup === false) {
+    throw channelError('group-disabled', '群聊任务已禁用（allowGroup: false）')
+  }
+
+  const builder = ROUTE_BUILDERS[channel]?.[kind]
+  if (builder === undefined) {
+    if (channel === 'feishu' && kind === 'group') {
+      throw channelError('channel-unsupported', '飞书暂只支持私聊创建定时任务（群聊与话题暂不支持）')
+    }
+    throw channelError('channel-unsupported', `${channel} 暂不支持${kind === 'group' ? '群聊' : '私聊'}投递`)
+  }
+
+  // Groups expose `chatId`; direct chats expose `senderId` (wecom also sets
+  // chatId to the same user id, so the fallback keeps it usable).
+  const address = kind === 'group' ? described.chatId : (described.senderId ?? described.chatId)
+  if (typeof address !== 'string' || address === '') {
+    throw channelError('no-address', '拿不到聊天地址，无法建立投递目标')
+  }
+  const botId = described.botId
+  if (typeof botId !== 'string' || botId === '') throw channelError('no-bot', '拿不到机器人身份')
+
+  const built = builder(address)
+  return { botId, kind: built.kind, route: built.route, address, channel, chatType }
+}
+
+/**
  * Delivery + target resolution against a live dsh-im service.
  * @param {object} service - `ctx.get('dshIm')`.
  * @param {{ logger?: object, format?: 'markdown'|'plain' }} [options]
@@ -92,37 +172,10 @@ export function createDshImChannel(service, { logger = null, format = TEXT_FORMA
 
   /** Resolve one conversation's chat address into a delivery target shape. */
   function locate(described, options = {}) {
-    if (described === null || described === undefined) {
-      throw channelError('not-an-im-session', '当前会话不在任何 IM 渠道上，无法回推；请在 QQ 里创建')
-    }
-    const chatType = described.chatType
-    if (!['dm', 'group'].includes(chatType)) {
-      throw channelError('unsupported-chat-type', `暂不支持的会话类型 ${String(chatType)}`)
-    }
-    if (chatType === 'group' && options.allowGroup === false) {
-      throw channelError('group-disabled', '群聊任务已禁用（allowGroup: false）')
-    }
-    const allowChannels = options.allowChannels ?? ['qq']
-    if (typeof described.channel === 'string' && !allowChannels.includes(described.channel)) {
-      throw channelError('channel-disabled', `当前渠道 ${described.channel} 未启用（allowChannels）`)
-    }
-    const isGroup = chatType === 'group'
-    // QQ private chats store `c2c:<senderId>`: chatId is null and the address
-    // lives in senderId. Groups store `group:<groupOpenId>` with chatId set.
-    const address = isGroup ? described.chatId : described.senderId
-    if (typeof address !== 'string' || address === '') {
-      throw channelError('no-address', '拿不到聊天地址，无法建立投递目标')
-    }
-    const botId = described.botId
-    if (typeof botId !== 'string' || botId === '') throw channelError('no-bot', '拿不到机器人身份')
-    return {
-      botId,
-      kind: isGroup ? 'group' : 'user',
-      route: isGroup ? { groupOpenId: address } : { userOpenId: address },
-      address,
-      channel: described.channel,
-      chatType,
-    }
+    return routeForConversation(described, {
+      allowChannels: options.allowChannels ?? SUPPORTED_CHANNELS,
+      allowGroup: options.allowGroup !== false,
+    })
   }
 
   /**

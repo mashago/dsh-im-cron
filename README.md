@@ -18,11 +18,11 @@
 
 ## What it does (and does not)
 
-This plugin **does not connect to QQ, send messages, or manage sessions**. It decides *when* to run, *what* to run, and *where the result goes*; dsh-im owns the channel.
+This plugin **does not connect to an IM platform, send messages, or manage sessions**. It decides *when* to run, *what* to run, and *where the result goes*; dsh-im owns the channel.
 
 | Concern | Owned by |
 |---|---|
-| QQ connection, session binding, proactive send, target management | **dsh-im** |
+| IM connection, session binding, proactive send, target management | **dsh-im** |
 | Scheduling, execution, result collection, bookkeeping | **this plugin** |
 
 Delivery goes through dsh-im's `dshIm` service (`contractVersion: 1`). This plugin imports no dsh-im code; it only calls `send` / `describeConversation` / `resolveTarget`.
@@ -71,6 +71,24 @@ Bot: Daily report ✍️
 
 ---
 
+## Channels
+
+Routing is table-driven; the route shape follows dsh-im's `normalizeRoute`.
+
+| Channel | Direct | Group | Route keys | Status |
+|---|---|---|---|---|
+| `qq` | ✅ | ✅ | `userOpenId` / `groupOpenId` | tested on a real bot |
+| `feishu` | ✅ | — | `openId` | structural; group and thread are rejected |
+| `weixin` | ✅ | — | `toUserId` | structural; dsh-im has no group route |
+| `dingtalk` | ✅ | ✅ | `userId` / `openConversationId` | structural |
+| `wecom` | ✅ | ✅ | `chatId` (both) | structural |
+
+`allowChannels` defaults to all five. A channel still needs a live bot in dsh-im; the list only controls where tasks may be created. Direct-chat address is `senderId` (wecom also sets `chatId` to the same id); group address is `chatId`. Feishu group/thread (`channel-unsupported` / `thread-unsupported`), weixin groups, and any other dsh-im channel (`slack`, `telegram`, …) are rejected explicitly.
+
+The matrix is honest about verification: only QQ was run against a real bot; the others are checked against dsh-im's source and covered by unit tests. Declarative `jobs` default `target.channel` to `qq`; set it explicitly for another channel.
+
+---
+
 ## Install
 
 **① pnpm on PATH** (`dsh plugin` forwards to pnpm):
@@ -79,7 +97,7 @@ Bot: Daily report ✍️
 npm install -g pnpm    # skip when `pnpm --version` already works
 ```
 
-**② Install and configure dsh-im first** (QQ bot + a receive target), and confirm it can send and receive:
+**② Install and configure dsh-im first** (at least one bot + a receive target), and confirm it can send and receive:
 
 ```bash
 dsh plugin --profile web add @xmanrui/dsh-im
@@ -248,7 +266,7 @@ Rules:
 | `endedRetentionHours` | `24` | how long a finished one-shot task is kept; `0` = never clean up |
 | `maxNotifyChars` | `2000` | reminder text limit (checked at creation) |
 | `maxJobs` / `maxJobsPerTarget` | `500` / `50` | task count caps |
-| `allowChannels` | `['qq']` | channels allowed to create tasks |
+| `allowChannels` | all supported channels | channels allowed to create tasks (`qq`, `feishu`, `weixin`, `dingtalk`, `wecom`) |
 | `allowGroup` | `false` | allow group-chat tasks (**script payloads are always disabled in groups**); toggled live from the Plugins page |
 | `jobs` | `[]` | declarative tasks, upserted by id at startup (existing water marks are kept) |
 | `agent.enabled` | `true` | only the `agent` payload is disabled when `sessionController` is missing |
@@ -498,7 +516,7 @@ At startup it checks `contractVersion >= 1`; if a method is missing, only delive
 |---|---|---|
 | did not run on time | `下次` (next) in `cli.js list`, task count in `cli.js doctor` | confirm DSH is running and the task is `启用` (enabled); precision comes from the timer, `pollSeconds` is only a fallback |
 | ran but nothing arrived | `deliver.status` / `error` in `runs.jsonl` | `bot-not-connected` → reconnect; `unknown-target` → `needs-rebind`: fix the target, then `imcron_resume` (or change the schedule once) |
-| the model says "can't create a task" | whether the chat is on QQ, `allowGroup`, `allowChannels` | the tools only work in IM sessions |
+| the model says "can't create a task" | whether the chat is on a supported channel, `allowGroup`, `allowChannels` | the tools only work in IM sessions |
 | the model never calls `imcron_*` | does the preset hide the tools | check the profile / preset tool set |
 | an agent task is always skipped | `result.reason` | `running` = the previous run has not finished; `busy` = over `maxConcurrent` |
 | an agent task reports `stuck` | `approval/asked` in the task session log | most likely waiting on `ask`; configure `danger-full-access` |
@@ -530,9 +548,9 @@ JSON Lines: `<ISO time> [<module instance id>] <event> {<JSON>}`. **Two differen
 - Reminder text is limited at creation; script / model output is unbounded and chunked by dsh-im at 4500 characters.
 - An agent turn for the same task is single-flight: `skipped: running` while the previous run is unfinished.
 - With several instances sharing one `stateDir`, idempotency holds within a single process (startup recovery takes over leftover claims).
-- Only the dsh-im channel is implemented; another channel needs a new `channel/*.js`.
+- Only the dsh-im service is implemented; another delivery service needs a new `channel/*.js`.
+- Feishu groups/threads and weixin groups are rejected; dingtalk, wecom and feishu were not tested against a real bot, and Windows is statically checked only.
 - `runs.jsonl` is append-only and is scanned for `imcron_list`; a per-minute task grows it by roughly 0.25–0.5 GB per year. A daily task is negligible.
-- Windows is statically checked only; its `command` payload accepts `.exe`/`.com` files.
 
 ---
 
@@ -548,7 +566,7 @@ JSON Lines: `<ISO time> [<module instance id>] <event> {<JSON>}`. **Two differen
 
 ```bash
 npm install
-npm test          # node --test, 199 cases
+npm test          # node --test, 205 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`, the three payloads and delivery states, turn ownership and timeouts, script path validation, tool arguments and copy.

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createDshImChannel, probeDshIm } from '../channel/dsh-im.js'
+import { createDshImChannel, probeDshIm, routeForConversation } from '../channel/dsh-im.js'
+import { SUPPORTED_CHANNELS } from '../config.js'
 
 function fakeService(overrides = {}) {
   const calls = { send: [], createTarget: [], listTargets: [] }
@@ -66,6 +67,84 @@ test('resolveTarget: group chat uses chatId as groupOpenId', async () => {
   assert.equal(target.chatType, 'group')
   assert.equal(calls.createTarget[0].target.kind, 'group')
   assert.deepEqual(calls.createTarget[0].target.route, { groupOpenId: 'GROUP-1' })
+})
+
+test('routes: every supported channel maps a direct chat to its dsh-im route', () => {
+  const expected = {
+    qq: { userOpenId: 'U-1' },
+    feishu: { openId: 'U-1' },
+    weixin: { toUserId: 'U-1' },
+    dingtalk: { userId: 'U-1' },
+    wecom: { chatId: 'U-1' },
+  }
+  for (const channel of SUPPORTED_CHANNELS) {
+    const located = routeForConversation({ channel, botId: 'bot-1', chatType: 'dm', chatId: null, senderId: 'U-1' })
+    assert.equal(located.kind, 'user', channel)
+    assert.deepEqual(located.route, expected[channel], channel)
+    assert.equal(located.channel, channel)
+    assert.equal(located.chatType, 'dm')
+  }
+})
+
+test('routes: group chats map to the group route where the channel supports one', () => {
+  assert.deepEqual(routeForConversation({ channel: 'qq', botId: 'b', chatType: 'group', chatId: 'G' }).route, { groupOpenId: 'G' })
+  assert.deepEqual(routeForConversation({ channel: 'dingtalk', botId: 'b', chatType: 'group', chatId: 'G' }).route, { openConversationId: 'G' })
+  assert.deepEqual(routeForConversation({ channel: 'wecom', botId: 'b', chatType: 'group', chatId: 'G' }).route, { chatId: 'G' })
+})
+
+test('routes: unsupported channel × chat-type combinations are explicit errors', () => {
+  assert.throws(
+    () => routeForConversation({ channel: 'feishu', botId: 'b', chatType: 'group', chatId: 'G' }),
+    (error) => error.code === 'channel-unsupported' && /只支持私聊/u.test(error.message),
+  )
+  assert.throws(
+    () => routeForConversation({ channel: 'weixin', botId: 'b', chatType: 'group', chatId: 'G' }),
+    (error) => error.code === 'channel-unsupported',
+  )
+  assert.throws(
+    () => routeForConversation({ channel: 'slack', botId: 'b', chatType: 'dm', senderId: 'U' }, { allowChannels: [...SUPPORTED_CHANNELS, 'slack'] }),
+    (error) => error.code === 'channel-unsupported',
+  )
+})
+
+test('routes: a thread and unknown chat types are rejected before addressing', () => {
+  assert.throws(
+    () => routeForConversation({ channel: 'feishu', botId: 'b', chatType: 'thread', chatId: 'G', threadId: 'T' }),
+    (error) => error.code === 'thread-unsupported',
+  )
+  assert.throws(
+    () => routeForConversation({ channel: 'qq', botId: 'b', chatType: 'channel' }),
+    (error) => error.code === 'unsupported-chat-type',
+  )
+})
+
+test('routes: allowChannels and allowGroup still gate creation', () => {
+  assert.throws(
+    () => routeForConversation({ channel: 'feishu', botId: 'b', chatType: 'dm', senderId: 'U' }, { allowChannels: ['qq'] }),
+    (error) => error.code === 'channel-disabled',
+  )
+  assert.throws(
+    () => routeForConversation({ channel: 'qq', botId: 'b', chatType: 'group', chatId: 'G' }, { allowGroup: false }),
+    (error) => error.code === 'group-disabled',
+  )
+  assert.throws(
+    () => routeForConversation({ channel: 'qq', botId: 'b', chatType: 'dm', chatId: null, senderId: '' }),
+    (error) => error.code === 'no-address',
+  )
+})
+
+test('resolveTarget: a Feishu direct chat creates the openId route', async () => {
+  const { service, calls } = fakeService({
+    async describeConversation() {
+      return { channel: 'feishu', botId: 'bot-fs', chatType: 'dm', chatId: null, senderId: 'ou_user' }
+    },
+  })
+  const channel = createDshImChannel(service)
+  const target = await channel.resolveTarget('session-fs', { jobName: '日报' })
+  assert.equal(target.channel, 'feishu')
+  assert.equal(calls.createTarget[0].target.kind, 'user')
+  assert.deepEqual(calls.createTarget[0].target.route, { openId: 'ou_user' })
+  assert.match(target.targetId, /^cron-[0-9a-f]{12}$/u)
 })
 
 test('resolveTarget: an existing target is reused without creating another', async () => {

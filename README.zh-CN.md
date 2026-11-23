@@ -18,11 +18,11 @@
 
 ## 它做什么、不做什么
 
-本插件**不连 QQ、不发消息、不管理会话**。它只决定**什么时候跑、跑什么、结果交给谁**；渠道归 dsh-im。
+本插件**不连 IM 平台、不发消息、不管理会话**。它只决定**什么时候跑、跑什么、结果交给谁**；渠道归 dsh-im。
 
 | 关心什么 | 谁负责 |
 |---|---|
-| QQ 连接、会话绑定、主动发送、目标管理 | **dsh-im** |
+| IM 连接、会话绑定、主动发送、目标管理 | **dsh-im** |
 | 排期、执行、取结果、记账 | **本插件** |
 
 投递通过 dsh-im 的 `dshIm` 服务（`contractVersion: 1`）完成。本插件不 import dsh-im 代码，只调用 `send` / `describeConversation` / `resolveTarget`。
@@ -71,6 +71,24 @@ DSH 自带的 `schedule_*` 跑在会话里，答案是否推回聊天取决于 `
 
 ---
 
+## 渠道
+
+路由是表驱动的，route 形状对齐 dsh-im 的 `normalizeRoute`。
+
+| 渠道 | 私聊 | 群聊 | route 键 | 状态 |
+|---|---|---|---|---|
+| `qq` | ✅ | ✅ | `userOpenId` / `groupOpenId` | 真机实测 |
+| `feishu` | ✅ | — | `openId` | 结构支持；群聊与话题拒绝 |
+| `weixin` | ✅ | — | `toUserId` | 结构支持；dsh-im 没有群聊 route |
+| `dingtalk` | ✅ | ✅ | `userId` / `openConversationId` | 结构支持 |
+| `wecom` | ✅ | ✅ | `chatId`（两者相同） | 结构支持 |
+
+`allowChannels` 默认包含这五个渠道。渠道本身还需要 dsh-im 里有活跃的机器人；这个列表只控制哪里允许创建任务。私聊地址取 `senderId`（wecom 同时把 `chatId` 设成同一个 id）；群聊地址取 `chatId`。飞书群聊/话题（`channel-unsupported` / `thread-unsupported`）、weixin 群聊，以及其他 dsh-im 渠道（`slack`、`telegram` 等）都会明确拒绝。
+
+上面的状态是如实标注：只有 QQ 跑过真实机器人；其余是按 dsh-im 源码核对并用单测覆盖。声明式 `jobs` 的 `target.channel` 默认是 `qq`，其他渠道要显式写。
+
+---
+
 ## 安装
 
 **① 确认 pnpm 在 PATH 上**（`dsh plugin` 会把参数转发给 pnpm）：
@@ -79,7 +97,7 @@ DSH 自带的 `schedule_*` 跑在会话里，答案是否推回聊天取决于 `
 npm install -g pnpm    # 已经能跑 `pnpm --version` 就跳过
 ```
 
-**② 先装并配好 dsh-im**（QQ 机器人 + 接收目标），确认能正常收发：
+**② 先装并配好 dsh-im**（至少一个渠道的机器人 + 接收目标），确认能正常收发：
 
 ```bash
 dsh plugin --profile web add @xmanrui/dsh-im
@@ -247,7 +265,7 @@ dsh --profile web --dump-config | grep im-cron
 | `endedRetentionHours` | `24` | 一次性任务结束后保留多久；`0` = 不清理 |
 | `maxNotifyChars` | `2000` | 提醒文本上限（创建时校验） |
 | `maxJobs` / `maxJobsPerTarget` | `500` / `50` | 任务容量上限 |
-| `allowChannels` | `['qq']` | 允许创建任务的渠道 |
+| `allowChannels` | 全部已支持渠道 | 允许创建任务的渠道（`qq`、`feishu`、`weixin`、`dingtalk`、`wecom`） |
 | `allowGroup` | `false` | 是否允许群聊建任务（**群聊里脚本载荷一律禁用**）；插件页可即时切换 |
 | `jobs` | `[]` | 声明式任务，启动时按 id upsert（保留既有水位） |
 | `agent.enabled` | `true` | 探测不到 `sessionController` 时只禁用 `agent` 载荷 |
@@ -497,7 +515,7 @@ examples/            示例配置与演示脚本
 |---|---|---|
 | 到点没跑 | `cli.js list` 的 `下次`、`cli.js doctor` 的任务计数 | 确认 DSH 在跑、任务启用；精度靠定时器，`pollSeconds` 只是兜底 |
 | 跑了但没收到 | `runs.jsonl` 的 `deliver.status` / `error` | `bot-not-connected` 等重连；`unknown-target` → `needs-rebind`：修好目标后 `imcron_resume`（或改一次排期） |
-| 模型说"建不了任务" | 聊天是否在 QQ、`allowGroup`、`allowChannels` | 工具只在 IM 会话里可用 |
+| 模型说"建不了任务" | 聊天是否在已支持渠道、`allowGroup`、`allowChannels` | 工具只在 IM 会话里可用 |
 | 模型没调 `imcron_*` | preset 是否屏蔽了工具 | 检查 profile / preset 的工具集 |
 | agent 任务一直跳过 | `result.reason` | `running` = 上一轮没结束；`busy` = 超出 `maxConcurrent` |
 | agent 报 `stuck` | 任务会话日志里的 `approval/asked` | 多半停在 `ask` 上无人应答；配 `danger-full-access` |
@@ -529,9 +547,9 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。同
 - 提醒文本上限在**创建时**校验；脚本 / 模型输出不设上限，由 dsh-im 按 4500 字分片。
 - 同一任务的 agent 回合**单飞**：上一轮没跑完时本次记 `skipped: running`。
 - 多实例共用同一 `stateDir` 时，幂等只在单进程内成立（启动恢复会接管残留占位）。
-- 渠道层目前只实现了 dsh-im；接其他渠道需要新写 `channel/*.js`。
+- 投递服务目前只实现了 dsh-im；接其他服务需要新写 `channel/*.js`。
+- 飞书群聊/话题、weixin 群聊会被拒绝；dingtalk、wecom、feishu 未跑真实机器人，Windows 只做静态检查。
 - `runs.jsonl` 只追加，`imcron_list` 会扫描它；每分钟任务大约每年增长 0.25–0.5 GB。每天任务可以忽略。
-- Windows 只做了静态检查；`command` 载荷只接受 `.exe`/`.com`。
 
 ---
 
@@ -547,7 +565,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。同
 
 ```bash
 npm install
-npm test          # node --test，199 个用例
+npm test          # node --test，205 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、三种载荷与投递三态、回合归属与超时、脚本路径校验、工具参数与文案。

@@ -8,6 +8,12 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
 
+/**
+ * IM channels this plugin knows how to address through dsh-im. A channel still
+ * needs a live bot connection in dsh-im; this is only the route allow-list.
+ */
+export const SUPPORTED_CHANNELS = Object.freeze(['qq', 'feishu', 'weixin', 'dingtalk', 'wecom'])
+
 const JobDeclarationSchema = z.object({
   id: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/u).optional(),
   name: z.string().min(1).max(80).optional(),
@@ -64,7 +70,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   activeHours: null,
   endedRetentionHours: 24,
   maxNotifyChars: 2_000,
-  allowChannels: ['qq'],
+  allowChannels: [...SUPPORTED_CHANNELS],
   allowGroup: false,
   scriptDir: null,
   jobs: [],
