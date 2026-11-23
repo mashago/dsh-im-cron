@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { Config, apply, startPlugin } from '../index.js'
+import { Config, apply, applyDeclaredJobs, startPlugin } from '../index.js'
 import { parseConfig } from '../config.js'
 
 function fakeLogger() {
@@ -189,6 +189,127 @@ test('apply: a broken declared job is skipped, the rest still load', async () =>
   await runtime.ready
   assert.deepEqual(runtime.scheduler.listJobs().map((job) => job.id), ['decl-ok'])
   assert.match(ctx.loggerObj.lines.warn.join('\n'), /排期非法/u)
+  runtime.stop()
+})
+
+test('apply: a declared job removed from config is deleted on the next start', async () => {
+  const dir = await tempDir()
+  const nowMs = Date.parse('2026-11-20T01:00:00+08:00')
+  const first = startPlugin(fakeCtx(), {
+    stateDir: dir,
+    requireChannel: false,
+    jobs: [
+      { id: 'decl-keep', name: '保留', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text: 'a' } },
+      { id: 'decl-drop', name: '删除', schedule: { cron: '0 10 * * *' }, payload: { kind: 'notify', text: 'b' } },
+    ],
+  }, { now: () => new Date(nowMs) })
+  await first.ready
+  // A chat-created task has no `declared` flag and must survive the sweep.
+  await first.scheduler.upsertJob({
+    id: 'imc-manual',
+    name: '手动',
+    enabled: true,
+    schedule: { kind: 'at', at: new Date(nowMs + 3_600_000).toISOString() },
+    payload: { kind: 'notify', text: 'm' },
+    deliver: 'never',
+    createdAt: new Date(nowMs).toISOString(),
+    target: { botId: 'bot-1', targetId: 'cron-1' },
+  })
+  first.stop()
+
+  const ctx = fakeCtx()
+  const second = startPlugin(ctx, {
+    stateDir: dir,
+    requireChannel: false,
+    jobs: [
+      { id: 'decl-keep', name: '保留', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text: 'a' } },
+    ],
+  }, { now: () => new Date(nowMs) })
+  await second.ready
+  assert.deepEqual(second.scheduler.listJobs().map((job) => job.id).sort(), ['decl-keep', 'imc-manual'])
+  assert.match(ctx.loggerObj.lines.info.join('\n'), /decl-drop.*已从配置移除/u)
+  second.stop()
+})
+
+test('apply: changing a declared payload replaces the job instead of duplicating it', async () => {
+  const dir = await tempDir()
+  const nowMs = Date.parse('2026-11-20T01:00:00+08:00')
+  const configWith = (text) => ({
+    stateDir: dir,
+    requireChannel: false,
+    jobs: [{ name: '日报', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text } }],
+  })
+
+  const first = startPlugin(fakeCtx(), configWith('v1'), { now: () => new Date(nowMs) })
+  await first.ready
+  first.stop()
+
+  const second = startPlugin(fakeCtx(), configWith('v2'), { now: () => new Date(nowMs) })
+  await second.ready
+  const jobs = second.scheduler.listJobs()
+  assert.equal(jobs.length, 1)
+  assert.equal(jobs[0].payload.text, 'v2')
+  assert.equal(jobs[0].declared, true)
+  second.stop()
+})
+
+test('apply: an invalid declaration does not prune the other declared jobs', async () => {
+  const dir = await tempDir()
+  const nowMs = Date.parse('2026-11-20T01:00:00+08:00')
+  const first = startPlugin(fakeCtx(), {
+    stateDir: dir,
+    requireChannel: false,
+    jobs: [
+      { id: 'decl-keep', name: '保留', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text: 'a' } },
+      { id: 'decl-drop', name: '暂时缺失', schedule: { cron: '0 10 * * *' }, payload: { kind: 'notify', text: 'b' } },
+    ],
+  }, { now: () => new Date(nowMs) })
+  await first.ready
+  first.stop()
+
+  const ctx = fakeCtx()
+  const second = startPlugin(ctx, {
+    stateDir: dir,
+    requireChannel: false,
+    jobs: [
+      { id: 'decl-keep', name: '保留', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text: 'a' } },
+      { id: 'decl-bad', name: '坏的', schedule: { at: '2020-01-01T00:00:00Z' }, payload: { kind: 'notify', text: 'x' } },
+    ],
+  }, { now: () => new Date(nowMs) })
+  await second.ready
+  // The typo must not delete a working declaration.
+  assert.deepEqual(second.scheduler.listJobs().map((job) => job.id).sort(), ['decl-drop', 'decl-keep'])
+  assert.match(ctx.loggerObj.lines.warn.join('\n'), /本轮不清理/u)
+  second.stop()
+})
+
+test('apply: an invalid config is marked degraded and does not prune declared jobs', async () => {
+  // A typo elsewhere makes parseConfig fall back to defaults; that reads as
+  // "no declared jobs", which must not be allowed to delete a working task.
+  const { degraded } = parseConfig({ pollSeconds: 'not-a-number', jobs: [] })
+  assert.equal(degraded, true)
+
+  const removed = []
+  const logger = fakeLogger()
+  const scheduler = {
+    listJobs: () => [{ id: 'decl-survivor', declared: true }, { id: 'imc-manual' }],
+    getJob: () => undefined,
+    upsertJob: async () => {},
+    removeJob: async (id) => { removed.push(id); return true },
+  }
+  const applied = await applyDeclaredJobs(scheduler, { jobs: [], timezone: 'Asia/Shanghai' }, logger, new Date(), { prune: false })
+  assert.equal(applied, 0)
+  assert.deepEqual(removed, [])
+  assert.match(logger.lines.warn.join('\n'), /配置不完整.*不清理/u)
+})
+
+test('apply: the removed catchUp setting warns and is ignored', async () => {
+  const dir = await tempDir()
+  const ctx = fakeCtx()
+  const runtime = startPlugin(ctx, { stateDir: dir, requireChannel: false, catchUp: 'once' }, { now: () => new Date() })
+  await runtime.ready
+  assert.match(ctx.loggerObj.lines.warn.join('\n'), /catchUp 已移除/u)
+  assert.equal(runtime.config.catchUp, undefined)
   runtime.stop()
 })
 

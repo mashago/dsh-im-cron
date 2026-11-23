@@ -283,6 +283,10 @@ Rules:
 | `agent.attachWorkspace` | `false` | whether task sessions join a workspace |
 | `agent.echoToChat` | `false` | whether the digest is injected back into the chat session |
 
+`jobs` owns the declared tasks: removing an entry (or the whole list) deletes that task on the next
+start, while tasks created from a chat are never touched. If any declaration is invalid, or config
+validation fell back to defaults, that start skips the cleanup instead of deleting a working task.
+
 `activeHours` details:
 
 - Slots outside the window are **skipped, never caught up** (a reminder past its window is stale information).

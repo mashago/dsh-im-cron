@@ -284,6 +284,10 @@ dsh --profile web --dump-config | grep im-cron
 | `agent.attachWorkspace` | `false` | 任务会话是否挂进 workspace |
 | `agent.echoToChat` | `false` | 跑完是否把摘要 inject 回聊天会话 |
 
+`jobs` 是声明式任务的唯一来源：删掉某个条目（或整份列表）会在下次启动时删除对应任务；
+聊天里创建的任务不受影响。只要有一条声明非法，或配置校验失败回退到了默认值，那一次启动就跳过清理，
+不会误删还能跑的任务。
+
 `activeHours` 细节：
 
 - 窗口外的槽**直接跳过、不补跑**（提醒错过窗口就是过期信息）。

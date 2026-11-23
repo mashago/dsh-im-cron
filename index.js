@@ -202,18 +202,21 @@ export function installImSchedulePolicy(ctx, channel, logger) {
  * Parse and upsert operator-declared jobs from configuration. A malformed row
  * disables only that row.
  */
-export async function applyDeclaredJobs(scheduler, config, logger, now = new Date()) {
+export async function applyDeclaredJobs(scheduler, config, logger, now = new Date(), { prune = true } = {}) {
   const timezone = config.timezone ?? hostTimezone(now)
-  let applied = 0
+  const applied = new Set()
+  let invalid = false
   for (const decl of config.jobs ?? []) {
     let schedule
     try {
       schedule = parseSchedule(decl.schedule ?? {}, { timezone, now })
     } catch (error) {
+      invalid = true
       logger?.warn?.(`[im-cron] 声明任务 "${decl.name ?? '?'}" 排期非法，已跳过：${error?.message ?? error}`)
       continue
     }
     const id = decl.id ?? declarationId(decl)
+    applied.add(id)
     const existing = scheduler.getJob(id)
     const payload = decl.payload ?? {}
     const job = {
@@ -232,9 +235,25 @@ export async function applyDeclaredJobs(scheduler, config, logger, now = new Dat
       ...(existing?.task === undefined ? {} : { task: existing.task }),
     }
     await scheduler.upsertJob(job)
-    applied += 1
   }
-  return applied
+  // The config is the source of truth for declared jobs: dropping an entry (or
+  // changing a name/payload, which changes the generated id) must not leave the
+  // old task running forever. Only jobs marked `declared` are touched, so tasks
+  // created from a chat survive. A single invalid entry skips the sweep: a typo
+  // must not delete a working task.
+  if (!prune) {
+    logger?.warn?.('[im-cron] 配置不完整，本轮不清理已移除的声明任务')
+  } else if (invalid) {
+    logger?.warn?.('[im-cron] 声明任务里有非法条目，本轮不清理已移除的声明任务')
+  } else {
+    for (const job of scheduler.listJobs()) {
+      if (job.declared === true && !applied.has(job.id)) {
+        await scheduler.removeJob(job.id)
+        logger?.info?.(`[im-cron] 声明任务 ${job.id} 已从配置移除，已删除`)
+      }
+    }
+  }
+  return applied.size
 }
 
 /**
@@ -245,7 +264,7 @@ export async function applyDeclaredJobs(scheduler, config, logger, now = new Dat
 export function startPlugin(ctx, rawConfig = {}, deps = {}) {
   const logger = deps.logger ?? resolveLogger(ctx)
   const clock = deps.now ?? (() => new Date())
-  const { config, warnings } = parseConfig(rawConfig)
+  const { config, warnings, degraded } = parseConfig(rawConfig)
   for (const warning of warnings) logger.warn?.(`[im-cron] ${warning}`)
 
   // The Loader's resolved config object: a volatile save updates these
@@ -315,7 +334,7 @@ export function startPlugin(ctx, rawConfig = {}, deps = {}) {
 
   const ready = scheduler
     .ensureLoaded()
-    .then(() => applyDeclaredJobs(scheduler, config, logger, clock()))
+    .then(() => applyDeclaredJobs(scheduler, config, logger, clock(), { prune: !degraded }))
     .then((count) => {
       logger.info?.(`[im-cron] delivery=${im.available ? 'dshIm' : 'pending'} agent=${agentTurn.available ? 'on' : 'off'} jobs=${count} stateDir=${config.stateDir}`)
       return count
