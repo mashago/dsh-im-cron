@@ -279,10 +279,17 @@ export function parseSchedule(input, { timezone = 'UTC', now = new Date() } = {}
   if (kind === 'cron') {
     const expression = validateCronExpression(input.cron)
     const zone = input.timezone ?? timezone
+    let cron
     try {
-      cronFor(expression, zone)
+      cron = cronFor(expression, zone)
     } catch (error) {
       throw new ScheduleError('bad-cron', `cron 表达式非法：${error?.message ?? expression}`)
+    }
+    // A syntactically valid but impossible calendar date (30 February, 31 April)
+    // has no future occurrence. Reject it at creation instead of letting the
+    // scheduler silently mark the job finished on its first pass.
+    if (cron.nextRun(now) === null) {
+      throw new ScheduleError('bad-cron', `cron 表达式没有未来的触发时间：${expression}（检查日/月组合）`)
     }
     return Object.freeze({ kind: 'cron', expression, timezone: zone })
   }

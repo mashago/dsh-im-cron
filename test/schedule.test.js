@@ -64,6 +64,19 @@ test('cron: five fields only, no macros, no value+step', () => {
   assert.throws(() => parseSchedule({ cron: '0/15 9 * * *' }, { now: NOW }), (error) => error.code === 'bad-cron')
 })
 
+test('cron: an expression with no future occurrence is rejected at creation', () => {
+  // Syntactically valid but no such calendar date.
+  for (const expression of ['0 9 30 2 *', '0 9 31 4 *', '0 9 31 2 *']) {
+    assert.throws(
+      () => parseSchedule({ cron: expression }, { now: NOW, timezone: 'Asia/Shanghai' }),
+      (error) => error instanceof ScheduleError && error.code === 'bad-cron' && /没有未来/u.test(error.message),
+    )
+  }
+  // The same field with a reachable date is fine, including a leap day.
+  const leapDay = parseSchedule({ cron: '0 9 29 2 *' }, { now: NOW, timezone: 'Asia/Shanghai' })
+  assert.equal(nextDue(leapDay, NOW).toISOString(), '2028-02-29T01:00:00.000Z')
+})
+
 test('cron: last day of month and */3 hours work', () => {
   const lastDay = parseSchedule({ cron: '0 9 L * *' }, { now: NOW, timezone: 'Asia/Shanghai' })
   assert.equal(nextDue(lastDay, NOW).toISOString(), '2026-11-30T01:00:00.000Z')
