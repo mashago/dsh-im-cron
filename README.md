@@ -74,7 +74,7 @@ dsh-im solved "how to send a message to QQ" but has no timer. This plugin adds t
 | DeepSeek Harness | ✅ | `0.2.2-rc.x` |
 | pnpm | ✅ | any recent release; `dsh plugin` forwards its arguments to pnpm |
 | **[`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im)** | **✅ required for delivery** | `5.10.0` (the `dshIm` contract was verified against this version) |
-| Platform | — | macOS tested; Linux expected to work but untested; the Windows branch (`cmd.exe`) is statically checked only |
+| Platform | — | macOS tested; Linux expected to work but untested; Windows is statically checked only — the `command` payload accepts `.exe`/`.com` files only (no shell, no `.sh`/`.cmd`/`.bat`) |
 
 ---
 
@@ -313,7 +313,7 @@ A script must satisfy three conditions:
 
 1. it lives inside `scriptDir` (relative or absolute name; **it must still resolve inside after resolution**)
 2. it is a regular file
-3. it has the execute bit and a shebang on the first line
+3. it is directly executable: on POSIX that means the execute bit and a shebang on the first line; on Windows it must be a native `.exe`/`.com` (batch/shell scripts need an exe wrapper)
 
 Rejected cases:
 
@@ -322,7 +322,8 @@ Rejected cases:
 | `script-dir-missing` | `scriptDir` does not exist |
 | `script-not-found` | the file does not exist |
 | `script-outside-dir` | `realpath` resolution escapes the directory (including `../` and symlinks) |
-| `script-not-executable` | no execute permission |
+| `script-not-executable` | no execute permission (POSIX) |
+| `script-platform-unsupported` | a script that cannot be spawned directly on this platform (Windows: only `.exe`/`.com`) |
 | `command-not-allowed-in-group` | creating a script task in a group chat |
 
 Run conventions:
@@ -572,7 +573,7 @@ Under `npm test` it never writes.
 - An agent turn for the same task is **single-flight**: when the previous run has not finished, this one records `skipped: running`, so "every minute" really means "at most once per minute".
 - With several instances sharing one `stateDir`, idempotency only holds within a single process (startup `recoverInterrupted` takes over leftover claims).
 - Only the dsh-im channel is implemented; another channel needs a new `channel/*.js` (see the source layout for the interface).
-- The Windows branch (`cmd.exe`) is statically checked only.
+- Windows is statically checked only; its `command` payload accepts `.exe`/`.com` files (the payload never goes through a shell, so `.sh`/`.cmd`/`.bat` need an exe wrapper).
 
 ---
 
@@ -580,7 +581,7 @@ Under `npm test` it never writes.
 
 ```bash
 npm install
-npm test          # node --test, 192 cases
+npm test          # node --test, 196 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`,

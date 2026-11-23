@@ -78,7 +78,7 @@ dsh-im 解决了「怎么把消息发到 QQ」，但没有定时器；本插件�
 | DeepSeek Harness | ✅ | `0.2.2-rc.x` |
 | pnpm | ✅ | 任意近期版本；`dsh plugin` 会把参数转发给它 |
 | **[`@xmanrui/dsh-im`](https://www.npmjs.com/package/@xmanrui/dsh-im)** | **✅ 投递必需** | `5.10.0`（已按此版本验过 `dshIm` 契约） |
-| 平台 | — | macOS 已实测；Linux 预期可用但未实测；Windows 分支（`cmd.exe`）仅静态检查 |
+| 平台 | — | macOS 已实测；Linux 预期可用但未实测；Windows 仅静态检查 —— `command` 载荷只接受 `.exe`/`.com`（不经 shell，不支持 `.sh`/`.cmd`/`.bat`） |
 
 ---
 
@@ -314,7 +314,7 @@ chmod +x ~/.dsh/im-cron/workspace/stock-report.sh
 
 1. 位于 `scriptDir` 内（相对名或绝对路径都行，**解析后必须仍在目录内**）
 2. 是普通文件
-3. 有执行权限，且首行有 shebang
+3. 可直接执行：POSIX 上要求执行权限且首行有 shebang；Windows 上必须是原生 `.exe`/`.com`（批处理/shell 脚本请用 exe 包装）
 
 拒绝的四种情况：
 
@@ -323,7 +323,8 @@ chmod +x ~/.dsh/im-cron/workspace/stock-report.sh
 | `script-dir-missing` | `scriptDir` 不存在 |
 | `script-not-found` | 文件不存在 |
 | `script-outside-dir` | `realpath` 解析后跑出目录（含 `../` 与符号链接） |
-| `script-not-executable` | 没有执行权限 |
+| `script-not-executable` | 没有执行权限（POSIX） |
+| `script-platform-unsupported` | 该平台不能直接 spawn 这个脚本（Windows 只支持 `.exe`/`.com`） |
 | `command-not-allowed-in-group` | 在群聊里创建脚本任务 |
 
 运行约定：
@@ -572,7 +573,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。
 - 同一任务的 agent 回合**单飞**：上一轮没跑完时本次记 `skipped: running`，所以"每分钟"实际是"每分钟最多一次"。
 - 多实例并发共用同一 `stateDir` 时，幂等保证只在单进程内成立（启动时的 `recoverInterrupted` 会接管残留占位）。
 - 渠道层目前只实现了 dsh-im；接其他渠道需要新写 `channel/*.js`（接口见源码布局）。
-- Windows 分支（`cmd.exe`）只做了静态检查，未实测。
+- Windows 只做了静态检查；`command` 载荷只接受 `.exe`/`.com`（不经 shell，`.sh`/`.cmd`/`.bat` 需要 exe 包装）。
 
 ---
 
@@ -580,7 +581,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。
 
 ```bash
 npm install
-npm test          # node --test，192 个用例
+npm test          # node --test，196 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、
