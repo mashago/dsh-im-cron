@@ -94,8 +94,8 @@ test('scheduler: the water mark survives a restart (no duplicate fire)', async (
   assert.equal(calls.length, 0)
 })
 
-test('scheduler: catchUp none skips a backlog but advances the water mark', async () => {
-  const { scheduler, calls, clock } = await setup({ config: { catchUp: 'none' } })
+test('scheduler: a missed slot is skipped but advances the water mark', async () => {
+  const { scheduler, calls, clock } = await setup()
   const nowMs = clock.now.getTime()
   await scheduler.upsertJob({
     id: 'imc-cron',
@@ -117,29 +117,6 @@ test('scheduler: catchUp none skips a backlog but advances the water mark', asyn
 
   const next = await scheduler.tick()
   assert.deepEqual(next.fired, [])
-})
-
-test('scheduler: catchUp once fires the latest missed slot exactly once', async () => {
-  const { scheduler, calls, clock } = await setup({ config: { catchUp: 'once' } })
-  const nowMs = clock.now.getTime()
-  await scheduler.upsertJob({
-    id: 'imc-cron',
-    name: '每分钟',
-    schedule: { kind: 'cron', expression: '* * * * *', timezone: 'Asia/Shanghai' },
-    payload: { kind: 'notify', text: 'tick' },
-    deliver: 'never',
-    enabled: true,
-    createdAt: new Date(nowMs - 60 * 60_000).toISOString(),
-    lastFiredFor: new Date(nowMs - 10 * 60_000).toISOString(),
-  })
-
-  const first = await scheduler.tick()
-  assert.deepEqual(first.fired.map((entry) => entry.jobId), ['imc-cron'])
-  assert.equal(calls.length, 1)
-  assert.equal(calls[0].occurrence, scheduler.getJob('imc-cron').lastFiredFor)
-
-  await scheduler.tick()
-  assert.equal(calls.length, 1)
 })
 
 test('scheduler: paused, broken and ended jobs are skipped', async () => {
@@ -389,8 +366,8 @@ test('scheduler: an armed deadline fires without waiting for the sweep', async (
 
 test('scheduler: an already-due slot is left to the sweep instead of spinning', async () => {
   const { scheduler, clock, calls } = await setup()
-  // Five minutes stale is past the freshness window, so `catchUp: none` skips it
-  // and the water mark advances instead of leaving a deadline in the past.
+  // Five minutes stale is past the freshness window, so the slot is skipped and
+  // the water mark advances instead of leaving a deadline in the past.
   const at = clock.now.getTime() - 300_000
   await scheduler.upsertJob(atJob(at))
   clock.now = new Date(at + 310_000)

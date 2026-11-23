@@ -42,7 +42,6 @@ export const ConfigSchema = z.object({
   timezone: z.string().min(1).nullable().optional(),
   maxJobs: z.number().int().min(1).max(100_000).optional(),
   maxJobsPerTarget: z.number().int().min(1).max(10_000).optional(),
-  catchUp: z.enum(['none', 'once']).optional(),
   activeHours: z.object({
     start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/u),
     end: z.string().regex(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/u),
@@ -66,7 +65,6 @@ export const DEFAULT_CONFIG = Object.freeze({
   timezone: null,
   maxJobs: 500,
   maxJobsPerTarget: 50,
-  catchUp: 'none',
   activeHours: null,
   endedRetentionHours: 24,
   maxNotifyChars: 2_000,
@@ -133,12 +131,20 @@ function readVolatile(value) {
 
 export function parseConfig(raw = {}, { env = process.env, home = homedir() } = {}) {
   const warnings = []
+  let degraded = false
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
-  if (source !== raw) warnings.push('配置不是对象，已按默认值启动')
+  if (source !== raw) {
+    degraded = true
+    warnings.push('配置不是对象，已按默认值启动')
+  }
   // Schemastery marks `allowGroup` volatile: the Loader hands it over as a
   // reference the Plugins page updates in place. This snapshot keeps the value
   // read at startup; `tools.js` re-reads the live reference for the switch.
   const plain = Object.fromEntries(Object.entries(source).map(([key, value]) => [key, readVolatile(value)]))
+
+  if (plain.catchUp !== undefined) {
+    warnings.push('catchUp 已移除：错过的槽一律跳过，不再补跑')
+  }
 
   const merged = {
     ...DEFAULT_CONFIG,
@@ -153,6 +159,7 @@ export function parseConfig(raw = {}, { env = process.env, home = homedir() } = 
   try {
     parsed = ConfigSchema.parse(merged)
   } catch (error) {
+    degraded = true
     warnings.push(`配置校验失败，已按默认值启动：${String(error?.message ?? error).split('\n')[0]}`)
     parsed = ConfigSchema.parse({ ...DEFAULT_CONFIG })
   }
@@ -181,7 +188,7 @@ export function parseConfig(raw = {}, { env = process.env, home = homedir() } = 
     config.scriptDir = join(config.stateDir, 'workspace')
   }
 
-  return { config: Object.freeze(config), warnings }
+  return { config: Object.freeze(config), warnings, degraded }
 }
 
 export default parseConfig

@@ -8,7 +8,6 @@
         pollSeconds: 30
         timezone: Asia/Shanghai
         defaultTimeoutSeconds: 600
-        catchUp: none
         endedRetentionHours: 24
         maxJobs: 500
         maxJobsPerTarget: 50

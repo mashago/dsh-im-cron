@@ -267,7 +267,6 @@ Rules:
 | `timezone` | host time zone | default zone for parsing / displaying schedules |
 | `pollSeconds` | `30` | **fallback sweep** interval (not trigger precision, see [Scheduling precision](#scheduling-precision)) |
 | `activeHours` | empty (all day) | execution window `{start, end, timezone?}` |
-| `catchUp` | `none` | missed slots while down: `none` skip / `once` catch up once |
 | `defaultTimeoutSeconds` | `600` | default script timeout |
 | `endedRetentionHours` | `24` | how long a finished one-shot task is kept; `0` = never clean up |
 | `maxNotifyChars` | `2000` | reminder text limit (checked at creation) |
@@ -364,9 +363,11 @@ Two levels:
 | Mechanism | Role | Precision |
 |---|---|---|
 | **Deadline timer** | points at the nearest `nextDue` among runnable tasks and fires directly | milliseconds |
-| **Fallback sweep** (`pollSeconds`) | catches up after laptop sleep, clock jumps, or a dead timer | ≤ `pollSeconds` |
+| **Fallback sweep** (`pollSeconds`) | re-runs a pass after laptop sleep, clock jumps, or a dead timer | ≤ `pollSeconds` |
 
-**The timer is an optimization, the sweep is the guarantee** — a failed timer only degrades to polling, it never loses a task.
+**The timer is an optimization, the sweep is the guarantee that a slot is noticed.** A failed timer only degrades to polling.
+A slot missed while DSH was down or the host was asleep is **skipped, never replayed** — there is no catch-up mode.
+Only a slot reached inside the freshness window (`max(2 × pollSeconds, 60s)`) still fires.
 Waits longer than 6 hours are recomputed in slices (`setTimeout` overflow protection), which also handles DST.
 
 Measured deviation: **9–38 ms** across the same batch of tasks (mostly around 10 ms).
@@ -575,7 +576,7 @@ Under `npm test` it never writes.
 
 ```bash
 npm install
-npm test          # node --test, 176 cases
+npm test          # node --test, 181 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`,

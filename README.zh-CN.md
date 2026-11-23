@@ -268,7 +268,6 @@ dsh --profile web --dump-config | grep im-cron
 | `timezone` | 宿主时区 | 排期解析 / 展示的默认时区 |
 | `pollSeconds` | `30` | **兜底扫描**间隔（不是触发精度，见[调度精度](#调度精度)） |
 | `activeHours` | 空（全天） | 执行时间窗 `{start, end, timezone?}` |
-| `catchUp` | `none` | 停机期间错过的时间槽：`none` 跳过 / `once` 补一次 |
 | `defaultTimeoutSeconds` | `600` | 脚本默认超时 |
 | `endedRetentionHours` | `24` | 一次性任务结束后保留多久；`0` = 不清理 |
 | `maxNotifyChars` | `2000` | 提醒文本上限（创建时校验） |
@@ -365,9 +364,11 @@ chmod +x ~/.dsh/im-cron/workspace/stock-report.sh
 | 机制 | 作用 | 精度 |
 |---|---|---|
 | **截止点定时器** | 指向所有可运行任务里最近的 `nextDue`，到点直接触发 | 毫秒级 |
-| **兜底扫描**（`pollSeconds`） | 笔记本休眠、系统时间跳变、定时器失效时补跑 | ≤ `pollSeconds` |
+| **兜底扫描**（`pollSeconds`） | 笔记本休眠、系统时间跳变、定时器失效后再跑一轮 | ≤ `pollSeconds` |
 
-**定时器是优化，扫描是保证** —— 前者失效只是退化成轮询，不会丢任务。
+**定时器是优化，扫描是"发现到点"的保证** —— 前者失效只是退化成轮询。
+DSH 停机或主机休眠期间错过的槽**直接跳过、不补跑** —— 没有补跑模式。
+只有落在 freshness 窗口（`max(2 × pollSeconds, 60s)`）内的槽仍会触发。
 超过 6 小时的等待会分片重算（`setTimeout` 溢出保护），顺带处理 DST。
 
 实测偏差：同一批任务 **9–38 ms**（多数 10 ms 量级）。
@@ -575,7 +576,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。
 
 ```bash
 npm install
-npm test          # node --test，176 个用例
+npm test          # node --test，181 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、

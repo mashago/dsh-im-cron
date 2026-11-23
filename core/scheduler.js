@@ -3,9 +3,9 @@
  *
  * Every tick reads the water mark (`job.lastFiredFor`), asks the schedule for the
  * next occurrence, and fires it when it is due. A slot that is stale (the host
- * was asleep, or the process was down) is treated as a backlog: `catchUp:'once'`
- * fires the latest missed slot exactly once, `catchUp:'none'` skips the backlog
- * and just moves the water mark forward.
+ * was asleep, or the process was down) is a backlog and is skipped: missed slots
+ * are never replayed, only the water mark moves forward. A slot is still fired
+ * when the process reached it inside the freshness window.
  */
 import { nextDue } from './schedule.js'
 import { hostTimezone } from '../config.js'
@@ -469,12 +469,9 @@ export function createScheduler({
         const latest = slots[slots.length - 1]
         const fresh = nowMs - latest.getTime() <= freshness
         const backlog = slots.length > 1 || !fresh
-        let toRun = null
-        if (!backlog) {
-          toRun = latest
-        } else if (config.catchUp === 'once') {
-          toRun = latest
-        }
+        // A backlog is consumed, never replayed: a reminder past its window is
+        // stale, and replaying intervals would burst duplicate work at startup.
+        const toRun = backlog ? null : latest
         diag('tick:due', {
           jobId: job.id,
           after: after.toISOString(),
@@ -482,7 +479,6 @@ export function createScheduler({
           latest: latest.toISOString(),
           fresh,
           backlog,
-          catchUp: config.catchUp ?? null,
           willRun: toRun !== null,
         })
 
