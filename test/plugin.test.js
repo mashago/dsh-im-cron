@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { Config, apply, applyDeclaredJobs, startPlugin } from '../index.js'
+import { DEFAULT_CONFIG } from '../config.js'
 import { parseConfig } from '../config.js'
 
 function fakeLogger() {
@@ -306,13 +307,15 @@ test('apply: the removed catchUp setting warns and is ignored', async () => {
   runtime.stop()
 })
 
-test('apply: never throws on garbage configuration', async () => {
+test('apply: an invalid config fails the row instead of silently using defaults', async () => {
   const dir = await tempDir()
   const ctx = fakeCtx()
-  assert.doesNotThrow(() => {
-    const runtime = startPlugin(ctx, { stateDir: dir, pollSeconds: 'not-a-number', activeHours: 'nope' })
-    runtime.stop()
-  })
+  assert.throws(
+    () => startPlugin(ctx, { stateDir: dir, pollSeconds: 'not-a-number', activeHours: 'nope' }),
+    (error) => error.code === 'config-invalid' && /pollSeconds/.test(error.message) && /activeHours/u.test(error.message),
+  )
+  // apply() rethrows config errors so the Loader marks this row failed...
+  assert.throws(() => apply(ctx, { stateDir: dir, pollSeconds: 'not-a-number' }), (error) => error.code === 'config-invalid')
 })
 
 test('effect: the registered disposer stops polling', async () => {
@@ -654,9 +657,17 @@ test('apply: the IM schedule guard works even when dsh-im resolves late', async 
 })
 
 test('plugin config: allowGroup defaults to off and stays live through the Loader reference', () => {
+  // Every field the plugin acts on is declared in the Loader schema, so the
+  // Loader (and the plugin page) can see it instead of letting it pass through
+  // unvalidated.
+  for (const key of Object.keys(DEFAULT_CONFIG)) assert.ok(Object.hasOwn(Config.dict, key), `${key} must be declared`)
+
   const accepted = Config['~standard'].validate({ stateDir: '/tmp/state', timezone: 'Asia/Shanghai' })
   assert.equal(accepted.issues, undefined)
   assert.equal(accepted.value.allowGroup.get(), false)
+  assert.equal(accepted.value.pollSeconds, 30)
+  assert.equal(accepted.value.agent.maxConcurrent, 2)
+  assert.notEqual(Config['~standard'].validate({ pollSeconds: 'not-a-number' }).issues, undefined)
   // The partial schema must not drop the row's other keys.
   assert.equal(accepted.value.stateDir, '/tmp/state')
   assert.equal(typeof accepted.value.allowGroup.get, 'function')

@@ -577,11 +577,23 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。
 
 ---
 
+## 设计取舍
+
+- **配置字段全部声明在 `Config` 里**：默认值从 `config.js` 导入，只有一处来源。字段非法会让插件行加载失败并点名；
+  （类型错误在 Loader 层就会被拒；`activeHours` 这类语义错误在插件启动时失败）。
+- **工具用裸 `ToolDefinition` 注册**：除了 schema 构建器之外不引入 `@deepseek-ai/*` 运行时依赖；每个工具自己校验参数
+  （测试覆盖接受/拒绝的形状）。`defineTool` 会为同样的校验引入一个与宿主版本耦合的依赖。
+- **`@deepseek-ai/schemastery` 仍是 dependency，不是 peer**：profile 或 `link:` 安装不提供它，而 schema 对象按结构消费，
+  多一份副本无害。
+- `engines.dsh` 钉住兼容的宿主版本；不满足时安装会被拒绝。
+
+---
+
 ## 开发
 
 ```bash
 npm install
-npm test          # node --test，198 个用例
+npm test          # node --test，199 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、

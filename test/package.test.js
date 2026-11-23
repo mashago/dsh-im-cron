@@ -22,6 +22,12 @@ async function jsFiles(dir) {
  * A module that is imported at runtime but left out of `files` only fails after
  * the package is installed from npm or a tarball: a linked checkout hides it.
  */
+test('package: engines.dsh gates the required host version', async () => {
+  const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+  assert.match(pkg.engines.dsh, /^>=0\.2\.2-rc\.0 <0\.3\.0$/u)
+  assert.match(pkg.engines.node, /^>=24\.9\.0$/u)
+})
+
 test('package: every runtime module is listed in "files"', async () => {
   const top = (await readdir(root, { withFileTypes: true }))
     .filter((entry) => entry.isFile() && entry.name.endsWith('.js'))

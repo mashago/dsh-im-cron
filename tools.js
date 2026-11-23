@@ -10,6 +10,10 @@
  * Target isolation: a model can never name a bot or a chat. The target comes from
  * `describeConversation(exec.agent.session.id)`, and management tools only see
  * jobs whose frozen target matches the calling chat.
+ *
+ * These are plain `ToolDefinition` objects rather than `defineTool()` results: the
+ * plugin keeps no `@deepseek-ai/dsh*` runtime dependency, so each execute
+ * validates its own arguments (the schema is still checked by the host).
  */
 import { randomBytes } from 'node:crypto'
 import { hostTimezone } from './config.js'

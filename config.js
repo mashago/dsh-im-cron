@@ -123,6 +123,19 @@ function readVolatile(value) {
   return value
 }
 
+/** A configuration error the plugin reports by failing the row, not by degrading. */
+export class ConfigError extends Error {
+  /**
+   * @param {string[]} warnings - the per-field problems found while parsing
+   */
+  constructor(warnings) {
+    super(`配置无效（${warnings.length} 项）：\n- ${warnings.join('\n- ')}`)
+    this.name = 'ConfigError'
+    this.code = 'config-invalid'
+    this.warnings = warnings
+  }
+}
+
 export function parseConfig(raw = {}, { env = process.env, home = homedir() } = {}) {
   const warnings = []
   let degraded = false

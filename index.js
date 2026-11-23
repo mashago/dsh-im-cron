@@ -1,12 +1,13 @@
 /**
  * dsh-im-cron plugin entry.
  *
- * `apply` never throws: a broken configuration, a missing channel, or an
- * unreadable state file degrades to log lines while DSH keeps running.
+ * `apply` rethrows configuration errors so the Loader fails this row loudly; a
+ * missing channel or an unreadable state file still degrades to log lines while
+ * DSH keeps running.
  */
 import { createHash } from 'node:crypto'
 import z from '@deepseek-ai/schemastery'
-import { hostTimezone, parseConfig } from './config.js'
+import { ConfigError, DEFAULT_CONFIG, hostTimezone, parseConfig } from './config.js'
 import { Store } from './core/store.js'
 import { createJobRunner } from './core/job.js'
 import { createScheduler } from './core/scheduler.js'
@@ -23,8 +24,45 @@ export const inject = []
  * reference instead of the startup snapshot.
  */
 export const Config = z.object({
-  allowGroup: z.boolean().default(false).volatile()
+  channel: z.string().default(DEFAULT_CONFIG.channel)
+    .description('渠道 id（目前只有 dsh-im）'),
+  stateDir: z.union([z.string(), z.const(null)]).default(null)
+    .description('状态目录；留空 = $DSH_HOME/im-cron'),
+  scriptDir: z.union([z.string(), z.const(null)]).default(null)
+    .description('脚本目录；留空 = <stateDir>/workspace'),
+  timezone: z.union([z.string(), z.const(null)]).default(null)
+    .description('默认 IANA 时区；留空 = 宿主时区'),
+  pollSeconds: z.number().default(DEFAULT_CONFIG.pollSeconds)
+    .description('兜底扫描间隔（秒）'),
+  defaultTimeoutSeconds: z.number().default(DEFAULT_CONFIG.defaultTimeoutSeconds)
+    .description('脚本默认超时（秒）'),
+  maxJobs: z.number().default(DEFAULT_CONFIG.maxJobs),
+  maxJobsPerTarget: z.number().default(DEFAULT_CONFIG.maxJobsPerTarget),
+  endedRetentionHours: z.number().default(DEFAULT_CONFIG.endedRetentionHours)
+    .description('已结束的一次性任务保留小时数；0 = 不清理'),
+  maxNotifyChars: z.number().default(DEFAULT_CONFIG.maxNotifyChars)
+    .description('提醒文本上限'),
+  allowChannels: z.array(z.string()).default([...DEFAULT_CONFIG.allowChannels])
+    .description('允许创建任务的渠道'),
+  allowGroup: z.boolean().default(DEFAULT_CONFIG.allowGroup).volatile()
     .description('群聊里是否允许使用定时任务；默认关闭'),
+  activeHours: z.union([
+    z.object({
+      start: z.string(),
+      end: z.string(),
+      timezone: z.union([z.string(), z.const(null)]).default(null),
+    }),
+    z.const(null),
+  ]).default(null).description('执行时间窗 {start,end,timezone?}；null = 全天'),
+  agent: z.object({
+    enabled: z.boolean().default(DEFAULT_CONFIG.agent.enabled),
+    timeoutSeconds: z.number().default(DEFAULT_CONFIG.agent.timeoutSeconds),
+    stuckGraceSeconds: z.union([z.number(), z.const(null)]).default(DEFAULT_CONFIG.agent.stuckGraceSeconds),
+    maxConcurrent: z.number().default(DEFAULT_CONFIG.agent.maxConcurrent),
+    permissionPreset: z.union([z.string(), z.const(null)]).default(DEFAULT_CONFIG.agent.permissionPreset),
+    taskSessionMaxAgeDays: z.number().default(DEFAULT_CONFIG.agent.taskSessionMaxAgeDays),
+  }).default({ ...DEFAULT_CONFIG.agent }).description('agent 任务会话设置'),
+  jobs: z.array(z.any()).default([]).description('运维声明式任务（按 id upsert）'),
 })
 
 /** Native scheduling is unreliable inside a chat; imcron_* owns those tools there. */
@@ -264,8 +302,12 @@ export async function applyDeclaredJobs(scheduler, config, logger, now = new Dat
 export function startPlugin(ctx, rawConfig = {}, deps = {}) {
   const logger = deps.logger ?? resolveLogger(ctx)
   const clock = deps.now ?? (() => new Date())
-  const { config, warnings, jobsTrusted } = parseConfig(rawConfig)
+  const { config, warnings, degraded, jobsTrusted } = parseConfig(rawConfig)
   for (const warning of warnings) logger.warn?.(`[im-cron] ${warning}`)
+  // Fail loudly, as DSH's plugin guide asks: a typo must not silently turn into
+  // default values. Per-field fallback remains available to the CLI, which uses
+  // parseConfig directly.
+  if (degraded) throw new ConfigError(warnings)
 
   // The Loader's resolved config object: a volatile save updates these
   // references in place, so the group switch needs no restart.
@@ -375,6 +417,9 @@ export function apply(ctx, rawConfig = {}) {
   try {
     startPlugin(ctx, rawConfig)
   } catch (error) {
+    // A configuration error is rethrown so the Loader marks this row failed with
+    // the real reason; every other failure stays contained.
+    if (error?.code === 'config-invalid') throw error
     const logger = resolveLogger(ctx)
     logger.error?.(`[im-cron] 插件加载失败（DSH 继续运行）：${String(error?.message ?? error)}`)
   }

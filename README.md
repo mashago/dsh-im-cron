@@ -577,11 +577,27 @@ Under `npm test` it never writes.
 
 ---
 
+## Design notes
+
+- **The config is declared in full.** `Config` names every knob the plugin acts on, and its defaults are
+  imported from `config.js`, so there is one source of truth. An invalid value fails the plugin row with the
+  field name (the Loader rejects type errors before the plugin starts; semantic errors such as a bad
+  `activeHours` window fail here).
+- **Tools are plain `ToolDefinition` objects.** Registering them directly keeps the plugin free of
+  `@deepseek-ai/*` runtime dependencies beyond the schema builder. Each tool validates its own arguments
+  (the suite covers the accepted and rejected shapes); `defineTool` would add a host-version-coupled
+  dependency for the same checks.
+- **`@deepseek-ai/schemastery` is a dependency, not a peer.** A profile or `link:` install does not provide it,
+  and a schema object is consumed structurally, so a second copy is harmless.
+- `engines.dsh` pins the compatible host range; installation refuses a host outside it.
+
+---
+
 ## Development
 
 ```bash
 npm install
-npm test          # node --test, 198 cases
+npm test          # node --test, 199 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`,
