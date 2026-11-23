@@ -202,6 +202,40 @@ test('agent: a missing session is recreated and the run continues', async () => 
   assert.equal(result.task.runs, 5)
 })
 
+test('agent: an expired session is rebuilt once, not on every run', async () => {
+  let clockMs = Date.parse('2026-11-20T01:00:00+08:00')
+  const harness = createHarness()
+  const runtime = harness.runtime({
+    now: () => new Date(clockMs),
+    config: {
+      stateDir: '/tmp/imcron-state',
+      agent: { enabled: true, timeoutSeconds: 5, maxConcurrent: 2, taskSessionMaxAgeDays: 30 },
+    },
+  })
+
+  const first = await runtime.runTurn(job(), { prompt: 'one' })
+  assert.equal(first.ok, true)
+  assert.equal(harness.created.length, 1)
+  const firstCreatedAt = first.task.sessionCreatedAt
+  assert.ok(Number.isFinite(Date.parse(firstCreatedAt)))
+
+  // Past the 30-day limit: the session is replaced and its clock restarts.
+  clockMs += 31 * 86_400_000
+  const second = await runtime.runTurn(job({ task: first.task }), { prompt: 'two' })
+  assert.equal(second.ok, true)
+  assert.equal(harness.created.length, 2)
+  assert.notEqual(second.sessionId, first.sessionId)
+  assert.ok(Date.parse(second.task.sessionCreatedAt) > Date.parse(firstCreatedAt))
+
+  // The fresh session is young again, so this run must reuse it. Before the fix
+  // the old stamp was carried forward and every run rebuilt the session.
+  clockMs += 3_600_000
+  const third = await runtime.runTurn(job({ task: second.task }), { prompt: 'three' })
+  assert.equal(third.ok, true)
+  assert.equal(third.sessionId, second.sessionId)
+  assert.equal(harness.created.length, 2)
+})
+
 test('agent: a running agent is skipped instead of queued', async () => {
   const harness = createHarness()
   const runtime = harness.runtime()

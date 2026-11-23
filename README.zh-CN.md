@@ -575,7 +575,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。
 
 ```bash
 npm install
-npm test          # node --test，173 个用例
+npm test          # node --test，174 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、

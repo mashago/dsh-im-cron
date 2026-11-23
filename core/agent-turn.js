@@ -250,6 +250,10 @@ export function createAgentTurn({
       sessionId,
       agentPreset: created?.agentPreset ?? desired.agentPreset,
       created: true,
+      // The expiry clock belongs to this session, not to the job. Carrying the
+      // old stamp forward marked a freshly created session as expired on the
+      // very next run, so it was rebuilt every time.
+      sessionCreatedAt: now().toISOString(),
     }
   }
 
@@ -315,7 +319,7 @@ export function createAgentTurn({
     if (typeof task.sessionId === 'string' && task.sessionId !== '') {
       if (taskExpired(task)) {
         diag('ensure-agent:decision', { decision: 'rebuild-expired' })
-        logger?.info?.(`[im-cron] 任务会话超过 ${maxAgeDays} 天，换新会话`)
+        logger?.info?.(`[im-cron] 任务会话 ${task.sessionId} 超过 ${maxAgeDays} 天，换新会话`)
       } else if (task.config === undefined ? hasSettings : !sameConfig(task.config, desired)) {
         diag('ensure-agent:decision', { decision: 'rebuild-config-changed' })
         logger?.info?.('[im-cron] 任务会话配置已变更，下一次运行重建会话')
@@ -531,7 +535,11 @@ export function createAgentTurn({
         agentPreset: desired.agentPreset,
         config: frozenConfig,
         runs: task.runs + 1,
-        sessionCreatedAt: task.sessionCreatedAt ?? now().toISOString(),
+        // A reused session keeps its birth date; a session created or recreated
+        // in this run starts the max-age clock over.
+        sessionCreatedAt: ensured.created === true
+          ? (ensured.sessionCreatedAt ?? now().toISOString())
+          : (task.sessionCreatedAt ?? now().toISOString()),
         lastRunAt: now().toISOString(),
         ...(ensured.agentPreset === undefined ? {} : { agentPreset: ensured.agentPreset }),
       }
