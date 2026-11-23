@@ -147,6 +147,25 @@ test('resolveTarget: a Feishu direct chat creates the openId route', async () =>
   assert.match(target.targetId, /^cron-[0-9a-f]{12}$/u)
 })
 
+test('describeTarget: a deleted target falls back to the canonical id', async () => {
+  const { service } = fakeService({ async listTargets() { return [] } })
+  const channel = createDshImChannel(service)
+  const target = await channel.describeTarget('session-1')
+  assert.equal(target.botId, 'bot-1')
+  assert.equal(target.channel, 'qq')
+  assert.match(target.targetId, /^cron-[0-9a-f]{12}$/u)
+})
+
+test('describeTarget: an existing target keeps its saved id', async () => {
+  const { service } = fakeService({
+    async listTargets() {
+      return [{ targetId: 'cron-existing', kind: 'user', route: { userOpenId: 'OPENID-1' } }]
+    },
+  })
+  const channel = createDshImChannel(service)
+  assert.equal((await channel.describeTarget('session-1')).targetId, 'cron-existing')
+})
+
 test('resolveTarget: an existing target is reused without creating another', async () => {
   const { service, calls } = fakeService({
     async listTargets(botId) {

@@ -502,9 +502,16 @@ export function createAgentTurn({
     const prompt = String(options.prompt ?? job?.payload?.prompt ?? '')
     if (prompt.trim() === '') return failure('empty-prompt')
 
-    const timeoutSeconds = options.timeoutSeconds ?? config.agent?.timeoutSeconds ?? 900
-    const seconds = Number(timeoutSeconds)
-    const timeoutMs = Number.isFinite(seconds) && seconds > 0 ? Math.max(50, Math.round(seconds * 1000)) : 900_000
+    const requestedSeconds = Number(options.timeoutSeconds ?? config.agent?.timeoutSeconds ?? 900)
+    const configuredSeconds = Number(config.agent?.timeoutSeconds)
+    // Keep the delay inside setTimeout's range: an out-of-range per-job value
+    // falls back to the configured timeout instead of firing immediately.
+    const seconds = Number.isFinite(requestedSeconds) && requestedSeconds > 0 && requestedSeconds <= 86_400
+      ? requestedSeconds
+      : Number.isFinite(configuredSeconds) && configuredSeconds > 0 && configuredSeconds <= 86_400
+        ? configuredSeconds
+        : 900
+    const timeoutMs = Math.max(50, Math.round(seconds * 1000))
     // The hard deadline is the point at which we stop trusting the turn at all;
     // the soft one only reports that it is slow.
     const graceSeconds = config.agent?.stuckGraceSeconds

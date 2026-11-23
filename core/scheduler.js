@@ -365,20 +365,29 @@ export function createScheduler({
       return { skipped: 'claim-failed' }
     }
     const startedAt = Date.now()
+    // A run can outlive the job object it started with: an update, pause or
+    // remove replaces `state.jobs` while the payload is still running. Always
+    // settle into the *current* record, not the captured one, or the run's task
+    // session / budget / inflight claim lands in an object nobody reads.
+    const liveJob = () => findJob(job.id)
     const task = (async () => {
       try {
         const { patch } = await runner.run({ job, occurrence: slot, trigger: 'schedule' })
         diag('fire:runner-returned', { jobId: job.id, slot: slot.toISOString(), durationMs: Date.now() - startedAt, patch })
-        patchJob(job, patch)
+        const live = liveJob()
+        if (live !== undefined) patchJob(live, patch)
       } catch (error) {
         diag('fire:runner-threw', { jobId: job.id, slot: slot.toISOString(), error: errorText(error) })
         logger?.error?.(`[im-cron] 任务 ${job.id} 执行异常：${errorText(error)}`)
       } finally {
-        release(job)
-        // The budget is settled with the run, not with the scheduling pass: a
-        // claimed occurrence counts even if the payload fails, exactly as it did
-        // when `tick` awaited the run.
-        countScheduledRun(job)
+        const live = liveJob()
+        if (live !== undefined) {
+          release(live)
+          // The budget is settled with the run, not with the scheduling pass: a
+          // claimed occurrence counts even if the payload fails, or the job was
+          // removed while it ran (the record is gone, so there is nothing to count).
+          countScheduledRun(live)
+        }
         inFlight.delete(job.id)
         dirty = true
         await persist()
@@ -567,7 +576,8 @@ export function createScheduler({
     const task = (async () => {
       try {
         const { record, patch } = await runner.run({ job, occurrence: readNow(), trigger })
-        patchJob(job, patch)
+        const live = findJob(id)
+        if (live !== undefined) patchJob(live, patch)
         return { ok: true, record }
       } finally {
         inFlight.delete(id)
@@ -589,8 +599,14 @@ export function createScheduler({
     return job === undefined ? undefined : { ...job }
   }
 
-  /** Add or replace a job; the caller owns validation. */
-  async function upsertJob(job) {
+  /**
+   * Add or replace a job; the caller owns validation.
+   * @param {object} job
+   * @param {{ clearEndedAt?: boolean }} [options] - `clearEndedAt` lets an explicit
+   *   update (schedule / maxRuns) revive a job without losing the default
+   *   "re-declaring the same job keeps it finished" behaviour.
+   */
+  async function upsertJob(job, { clearEndedAt = false } = {}) {
     await ensureLoaded()
     const index = state.jobs.findIndex((candidate) => candidate.id === job.id)
     diag('upsert-job', {
@@ -607,7 +623,7 @@ export function createScheduler({
       state.jobs[index] = {
         ...job,
         ...(job.lastFiredFor === undefined && existing.lastFiredFor !== undefined ? { lastFiredFor: existing.lastFiredFor } : {}),
-        ...(job.endedAt === undefined && existing.endedAt !== undefined ? { endedAt: existing.endedAt } : {}),
+        ...(!clearEndedAt && job.endedAt === undefined && existing.endedAt !== undefined ? { endedAt: existing.endedAt } : {}),
         ...(job.inflight === undefined && existing.inflight !== undefined ? { inflight: existing.inflight } : {}),
       }
     }

@@ -320,6 +320,50 @@ test('tools: a text-only update leaves needs-rebind alone', async () => {
   assert.equal(scheduler.getJob(created.id).payload.text, '新文案')
 })
 
+test('tools: a job whose target was deleted stays listable and can be resumed', async () => {
+  const { call, scheduler, dshIm } = await harness()
+  const created = await call('imcron_remind', { text: '日报', cron: '0 9 * * *' })
+  await scheduler.upsertJob({ ...scheduler.getJob(created.id), state: 'needs-rebind' })
+
+  // The target was deleted from dsh-im (unknown-target): the job must not vanish.
+  dshIm.targets.length = 0
+  const listed = await call('imcron_list')
+  assert.equal(listed.jobs.length, 1)
+  assert.equal(listed.jobs[0].id, created.id)
+
+  const createsBefore = dshIm.calls.createTarget.length
+  await call('imcron_resume', { id: created.id })
+  assert.equal(scheduler.getJob(created.id).state, undefined)
+  assert.equal(dshIm.calls.createTarget.length, createsBefore + 1, 'resume recreates the canonical target')
+  assert.equal(dshIm.calls.createTarget.at(-1).target.route.userOpenId, 'OPENID-1')
+  assert.equal(dshIm.targets.length, 1)
+})
+
+test('tools: timeoutSeconds is range-checked on creation', async () => {
+  const { call, scheduler } = await harness()
+  for (const timeoutSeconds of [0, -1, 86_401, 1.5]) {
+    await assert.rejects(
+      () => call('imcron_run', { script: 'echo.sh', cron: '0 9 * * *', timeoutSeconds }),
+      (error) => error.code === 'bad-timeout',
+    )
+    await assert.rejects(
+      () => call('imcron_ask', { prompt: 'x', cron: '0 9 * * *', timeoutSeconds }),
+      (error) => error.code === 'bad-timeout',
+    )
+  }
+  const accepted = await call('imcron_run', { script: 'echo.sh', cron: '0 9 * * *', timeoutSeconds: 30 })
+  assert.equal(accepted.ok, true)
+  assert.equal(scheduler.getJob(accepted.id).payload.timeoutSeconds, 30)
+})
+
+test('tools: a schedule update revives an ended job', async () => {
+  const { call, scheduler } = await harness()
+  const created = await call('imcron_remind', { text: '一次', at: new Date(Date.now() + 3_600_000).toISOString() })
+  await scheduler.upsertJob({ ...scheduler.getJob(created.id), endedAt: new Date().toISOString() })
+  await call('imcron_update', { id: created.id, cron: '0 10 * * *' })
+  assert.equal(scheduler.getJob(created.id).endedAt, undefined)
+})
+
 test('tools: another chat job id is indistinguishable from missing', async () => {
   const { call, scheduler } = await harness()
   // Give this chat its own target so the comparison is about ownership, not about

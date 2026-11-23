@@ -248,6 +248,15 @@ test('agent: a running agent is skipped instead of queued', async () => {
   assert.equal(result.result.reason, 'running')
 })
 
+test('agent: an out-of-range timeout falls back instead of firing immediately', async () => {
+  const harness = createHarness({
+    plan: (msg, api) => setTimeout(() => api.complete(msg, 'ok'), 20),
+  })
+  const result = await harness.runtime().runTurn(job(), { prompt: 'x', timeoutSeconds: 10 ** 9 })
+  assert.equal(result.ok, true)
+  assert.equal(result.text, 'ok')
+})
+
 test('agent: a turn that finishes after the soft deadline still delivers its answer', async () => {
   const harness = createHarness({
     timeoutSeconds: 0.05,

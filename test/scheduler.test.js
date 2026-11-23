@@ -163,6 +163,49 @@ test('scheduler: a slow run does not hold up another due job', async () => {
   for (const job of scheduler.listJobs()) assert.equal(job.inflight, undefined)
 })
 
+test('scheduler: a run settles into the job even when it is replaced while running', async () => {
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const { scheduler, clock, store } = await setup({
+    runner: {
+      async run({ job }) {
+        if (job.id === 'imc-race') await gate
+        return { patch: { task: { sessionId: 'session-run', runs: 1 } } }
+      },
+    },
+  })
+  await scheduler.upsertJob(atJob(clock.now.getTime() - 10_000, { id: 'imc-race', maxRuns: 3 }))
+
+  const tick = scheduler.tick()
+  for (let i = 0; i < 50 && scheduler.getJob('imc-race').inflight === undefined; i += 1) await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.ok(scheduler.getJob('imc-race').inflight !== undefined, 'the run must be in flight')
+
+  // Simulate imcron_update while the payload still runs.
+  const current = scheduler.getJob('imc-race')
+  const { endedAt: _endedAt, inflight: _inflight, ...rest } = current
+  await scheduler.upsertJob({
+    ...rest,
+    name: 'renamed',
+    schedule: { kind: 'cron', expression: '0 9 * * *', timezone: 'Asia/Shanghai' },
+    lastFiredFor: new Date().toISOString(),
+  }, { clearEndedAt: true })
+
+  release()
+  await tick
+  await scheduler.settle()
+
+  const job = scheduler.getJob('imc-race')
+  assert.equal(job.name, 'renamed')
+  assert.equal(job.task.sessionId, 'session-run')
+  assert.equal(job.runsDone, 1)
+  assert.equal(job.inflight, undefined)
+
+  const saved = (await store.load()).jobs.find((candidate) => candidate.id === 'imc-race')
+  assert.equal(saved.task.sessionId, 'session-run')
+  assert.equal(saved.runsDone, 1)
+  assert.equal(saved.inflight, undefined)
+})
+
 test('scheduler: a run still in flight is skipped by the next pass, not queued', async () => {
   let release
   const gate = new Promise((resolve) => { release = resolve })

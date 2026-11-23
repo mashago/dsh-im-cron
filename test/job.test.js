@@ -132,6 +132,25 @@ test('job: timeout is reported as a failure', async () => {
   assert.match(sent[0].text, /超时/u)
 })
 
+test('job: an invalid script timeout falls back to the configured default', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imcron-job-'))
+  const { config } = parseConfig({ stateDir: dir, defaultTimeoutSeconds: 600 })
+  const store = new Store(dir)
+  const seen = []
+  const exec = async (_entry, options) => {
+    seen.push(options.timeoutSeconds)
+    return {
+      exitCode: 0, signal: null, timedOut: false, aborted: false, durationMs: 0,
+      stdout: 'ok', stderr: '', stdoutDropped: 0, stderrDropped: 0,
+    }
+  }
+  const runner = createJobRunner({ store, config, logger: null, now: () => NOW, send: async () => ({ status: 'sent' }), exec })
+  for (const timeoutSeconds of [-1, 0, 86_401, 10 ** 9, 30]) {
+    await runner.run({ job: job({ payload: { kind: 'command', script: '/bin/true', timeoutSeconds } }), occurrence: NOW })
+  }
+  assert.deepEqual(seen, [600, 600, 600, 600, 30])
+})
+
 test('job: pending delivery is retried with backoff and can succeed', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'imcron-job-'))
   const { config } = parseConfig({ stateDir: dir })

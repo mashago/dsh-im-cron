@@ -180,8 +180,14 @@ export function createJobRunner({
       } else {
         // Spawn the file directly instead of handing a path to a shell: a
         // scriptDir containing spaces would otherwise be word-split.
+        const requested = job.payload.timeoutSeconds
+        // A bad per-job timeout (declared config, or a job stored before the
+        // tool-side check) must not disable the timeout or overflow setTimeout.
+        const timeoutSeconds = Number.isSafeInteger(requested) && requested >= 1 && requested <= 86_400
+          ? requested
+          : config.defaultTimeoutSeconds
         const outcome = await exec({ argv: [script], cwd: config.scriptDir }, {
-          timeoutSeconds: job.payload.timeoutSeconds ?? config.defaultTimeoutSeconds,
+          timeoutSeconds,
           env: { IMCRON_JOB: job.id, IMCRON_OCCURRENCE: occurrenceIso },
           signal,
         })

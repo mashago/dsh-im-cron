@@ -329,6 +329,14 @@ function createToolRuntime(ctx) {
     }
   }
 
+  function validateTimeoutSeconds(value) {
+    if (value === undefined || value === null) return undefined
+    if (!Number.isSafeInteger(value) || value < 1 || value > 86_400) {
+      throw new ToolError('bad-timeout', 'timeoutSeconds 必须是 1-86400 的整数')
+    }
+    return value
+  }
+
   function validateMaxRuns(value) {
     if (value === undefined || value === null) return undefined
     if (!Number.isSafeInteger(value) || value < 1 || value > 10_000) {
@@ -423,7 +431,9 @@ function createToolRuntime(ctx) {
         })(),
         timeoutSeconds: {
           type: 'integer',
-          description: 'Kill the script after this many seconds; defaults to the plugin defaultTimeoutSeconds.',
+          minimum: 1,
+          maximum: 86_400,
+          description: 'Kill the script after this many seconds (1-86400); defaults to the plugin defaultTimeoutSeconds.',
         },
         at: AT_SCHEMA,
         cron: CRON_SCHEMA,
@@ -443,6 +453,7 @@ function createToolRuntime(ctx) {
       const im = runtime()
       const scriptPath = await resolveScript(im.config.scriptDir, args.script)
       const schedule = parseToolSchedule(im, args)
+      const timeoutSeconds = validateTimeoutSeconds(args.timeoutSeconds)
       return await createJob({
         im,
         exec,
@@ -450,7 +461,7 @@ function createToolRuntime(ctx) {
         payload: {
           kind: 'command',
           script: scriptPath,
-          ...(typeof args.timeoutSeconds === 'number' ? { timeoutSeconds: args.timeoutSeconds } : {}),
+          ...(timeoutSeconds === undefined ? {} : { timeoutSeconds }),
         },
         deliver: validateNotify(args.notify, { allowed: ['always', 'on-failure', 'never'], fallback: 'on-failure', label: 'imcron_run' }),
         maxRuns: validateMaxRuns(args.maxRuns),
@@ -480,7 +491,12 @@ function createToolRuntime(ctx) {
         timezone: TIMEZONE_SCHEMA,
         maxRuns: MAX_RUNS_SCHEMA,
         notify: { type: 'string', enum: ['always', 'never'], description: 'Defaults to always.' },
-        timeoutSeconds: { type: 'integer', description: 'Per-run turn budget; defaults to the plugin agent.timeoutSeconds.' },
+        timeoutSeconds: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 86_400,
+          description: 'Per-run turn budget (1-86400 seconds); defaults to the plugin agent.timeoutSeconds.',
+        },
       },
       required: ['prompt'],
       additionalProperties: false,
@@ -498,6 +514,7 @@ function createToolRuntime(ctx) {
         throw new ToolError('agent-unavailable', '这个部署没有可用的 agent 运行时，无法创建模型任务')
       }
       const schedule = parseToolSchedule(im, args)
+      const timeoutSeconds = validateTimeoutSeconds(args.timeoutSeconds)
       return await createJob({
         im,
         exec,
@@ -505,7 +522,7 @@ function createToolRuntime(ctx) {
         payload: {
           kind: 'agent',
           prompt: args.prompt,
-          ...(typeof args.timeoutSeconds === 'number' ? { timeoutSeconds: args.timeoutSeconds } : {}),
+          ...(timeoutSeconds === undefined ? {} : { timeoutSeconds }),
         },
         deliver: validateNotify(args.notify, { allowed: ['always', 'never'], fallback: 'always', label: 'imcron_ask' }),
         maxRuns: validateMaxRuns(args.maxRuns),
@@ -655,7 +672,8 @@ function createToolRuntime(ctx) {
         delete next.endedAt
       }
 
-      await im.scheduler.upsertJob(next)
+      const revives = hasSchedule || args.maxRuns !== undefined
+      await im.scheduler.upsertJob(next, { clearEndedAt: revives })
       const next3 = nextThree(next.schedule, new Date())
       return {
         ok: true,
@@ -716,7 +734,7 @@ function createToolRuntime(ctx) {
   tools.imcron_resume = {
     name: 'imcron_resume',
     description: 'Resume a paused job of this chat. Slots missed while it was paused are skipped; the next future slot runs. '
-      + 'It also clears the needs-rebind delivery state after the target has been fixed. '
+      + 'It also clears the needs-rebind delivery state and recreates the chat\'s target if it was deleted. '
       + 'Use imcron_trigger to run it once immediately.',
     parameters: {
       type: 'object',
@@ -736,6 +754,25 @@ function createToolRuntime(ctx) {
       }
       const next = { ...job, enabled: true }
       if (next.state === 'needs-rebind') delete next.state
+
+      // A deleted target cannot be repaired by clearing the flag alone. When this
+      // job uses the chat's canonical target, recreate it (the id is deterministic
+      // and therefore unchanged); custom target ids are left alone.
+      const sessionId = sessionIdOf(exec)
+      const current = await im.channel.describeTarget(sessionId)
+      if (current !== null && current.targetId === job.target.targetId) {
+        let target
+        try {
+          target = await im.channel.resolveTarget(sessionId, {
+            jobName: job.name,
+            allowChannels: im.config.allowChannels,
+            allowGroup: typeof im.isGroupAllowed === 'function' ? im.isGroupAllowed() : im.config.allowGroup,
+          })
+        } catch (error) {
+          throw new ToolError(error?.code ?? 'resolve-target-failed', error?.message ?? String(error))
+        }
+        next.target = { ...job.target, botId: target.botId, targetId: target.targetId, channel: target.channel }
+      }
       await im.scheduler.upsertJob(next)
       return { ok: true, id: job.id, enabled: true }
     },

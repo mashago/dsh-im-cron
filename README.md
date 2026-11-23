@@ -515,7 +515,7 @@ At startup it checks `contractVersion >= 1`; if a method is missing, only delive
 | Symptom | Look at first | Fix |
 |---|---|---|
 | did not run on time | `下次` (next) in `cli.js list`, task count in `cli.js doctor` | confirm DSH is running and the task is `启用` (enabled); precision comes from the timer, `pollSeconds` is only a fallback |
-| ran but nothing arrived | `deliver.status` / `error` in `runs.jsonl` | `bot-not-connected` → reconnect; `unknown-target` → `needs-rebind`: fix the target, then `imcron_resume` (or change the schedule once) |
+| ran but nothing arrived | `deliver.status` / `error` in `runs.jsonl` | `bot-not-connected` → reconnect; `unknown-target` → `needs-rebind`: `imcron_resume` recreates the chat's target and re-arms the job (or change the schedule once) |
 | the model says "can't create a task" | whether the chat is on a supported channel, `allowGroup`, `allowChannels` | the tools only work in IM sessions |
 | the model never calls `imcron_*` | does the preset hide the tools | check the profile / preset tool set |
 | an agent task is always skipped | `result.reason` | `running` = the previous run has not finished; `busy` = over `maxConcurrent` |
@@ -566,7 +566,7 @@ JSON Lines: `<ISO time> [<module instance id>] <event> {<JSON>}`. **Two differen
 
 ```bash
 npm install
-npm test          # node --test, 205 cases
+npm test          # node --test, 213 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`, the three payloads and delivery states, turn ownership and timeouts, script path validation, tool arguments and copy.

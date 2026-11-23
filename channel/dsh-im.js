@@ -227,11 +227,27 @@ export function createDshImChannel(service, { logger = null, format = TEXT_FORMA
     } catch {
       return null
     }
-    const listed = await listTargetsOf(located.botId)
+    let listed = []
+    try {
+      listed = await listTargetsOf(located.botId)
+    } catch (error) {
+      // A missing/unreadable target list must not hide this chat's jobs; fall
+      // through to the canonical id so the management tools still work.
+      logger?.warn?.(`[im-cron] 读取投递目标失败：${String(error?.message ?? error)}`)
+    }
     const match = listed.find((target) => target?.kind === located.kind && sameRoute(target.route, located.route))
-    return match === undefined
-      ? null
-      : { botId: located.botId, targetId: match.targetId, channel: located.channel, chatType: located.chatType }
+    if (match !== undefined) {
+      return { botId: located.botId, targetId: match.targetId, channel: located.channel, chatType: located.chatType }
+    }
+    // The target may have been deleted (unknown-target -> needs-rebind). Jobs
+    // created from a chat use this deterministic id, so returning it keeps them
+    // visible and manageable instead of unreachable forever.
+    return {
+      botId: located.botId,
+      targetId: targetIdFor({ botId: located.botId, channel: located.channel, kind: located.kind, address: located.address }),
+      channel: located.channel,
+      chatType: located.chatType,
+    }
   }
 
   /**
