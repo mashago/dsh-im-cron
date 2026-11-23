@@ -575,7 +575,7 @@ Under `npm test` it never writes.
 
 ```bash
 npm install
-npm test          # node --test, 174 cases
+npm test          # node --test, 176 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`,

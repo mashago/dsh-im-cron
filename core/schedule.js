@@ -29,6 +29,7 @@ export class ScheduleError extends Error {
 
 const HOUR_MS = 3_600_000
 const MINUTE_MS = 60_000
+const DAY_MS = 86_400_000
 const formatterCache = new Map()
 
 function formatterFor(timezone) {
@@ -317,7 +318,20 @@ export function nextDue(schedule, after) {
   const step = schedule.unit === 'week' ? schedule.count * 7 : schedule.count
   const anchorDate = parseLocalDate(schedule.anchor)
   const hhmm = schedule.at ?? '00:00'
-  for (let k = 0; k < 1_000; k += 1) {
+  // Start near the answer instead of walking from the anchor. Walking from zero
+  // made a long-running daily schedule run dry after 1000 occurrences (~2.7
+  // years), which the scheduler then treated as "finished", and every call got
+  // slower as the job aged. The calendar-day delta gives a lower bound on the
+  // occurrence index; back off one step so a same-day occurrence is included.
+  const afterDate = localParts(afterMs, schedule.timezone)
+  const dayDiff = Math.floor(
+    (Date.UTC(afterDate.y, afterDate.m - 1, afterDate.d) - Date.UTC(anchorDate.y, anchorDate.m - 1, anchorDate.d)) / DAY_MS,
+  )
+  const first = Math.max(0, Math.floor(dayDiff / step) - 1)
+  // Occurrences are `step` local days apart, so the first instant after `after`
+  // is within a couple of steps of the estimate. The bound only guards a corrupt
+  // zone conversion, not the normal path.
+  for (let k = first; k <= first + 3; k += 1) {
     const date = addLocalDays(anchorDate, k * step)
     const resolved = wallClockToInstant(date, hhmm, schedule.timezone)
     const instant = resolved.kind === 'gap' ? resolved.gapAfter : resolved.ms

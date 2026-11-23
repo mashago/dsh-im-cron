@@ -97,6 +97,29 @@ test('every week: count weeks between occurrences', () => {
   ])
 })
 
+test('every day: occurrences continue past the old 1000-step horizon', () => {
+  const schedule = parseSchedule(
+    { every: { unit: 'day', count: 1, at: '06:00', timezone: 'Asia/Shanghai' } },
+    { now: NOW },
+  )
+  const occurrence = (days) => wallClockToInstant(addLocalDays({ y: 2026, m: 11, d: 20 }, days), '06:00', 'Asia/Shanghai').ms
+
+  // 999 days after the anchor was the last occurrence the old loop could reach;
+  // the next call returned undefined, so the scheduler ended a live job.
+  assert.equal(nextDue(schedule, new Date(occurrence(999))).getTime(), occurrence(1_000))
+  assert.equal(nextDue(schedule, new Date(occurrence(10_000))).getTime(), occurrence(10_001))
+})
+
+test('every week: a far-future water mark still resolves', () => {
+  const schedule = parseSchedule(
+    { every: { unit: 'week', count: 1, at: '10:00', timezone: 'Asia/Shanghai' } },
+    { now: NOW },
+  )
+  // 1100 weeks is past the old 1000-step loop as well (each step is one week).
+  const occurrence = (weeks) => wallClockToInstant(addLocalDays({ y: 2026, m: 11, d: 20 }, weeks * 7), '10:00', 'Asia/Shanghai').ms
+  assert.equal(nextDue(schedule, new Date(occurrence(1_100))).getTime(), occurrence(1_101))
+})
+
 test('every hour is instant based and keeps its spacing across DST', () => {
   const schedule = parseSchedule(
     { every: { unit: 'hour', count: 3, timezone: 'America/New_York' } },
