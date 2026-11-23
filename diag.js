@@ -6,12 +6,16 @@
  * as two ids. Tests never write (`NODE_TEST_CONTEXT` is present under `node --test`).
  *
  * Output: `<ISO> [<instance>] <event> {<detail>}` appended to
- * `$IMCRON_DIAG_FILE` when set, else `/tmp/imcron_diag/incident.log`.
+ * `$IMCRON_DIAG_FILE` when set, else `/tmp/imcron_diag/incident.log` on POSIX and
+ * `%TEMP%\imcron_diag\incident.log` on Windows.
  */
 import { appendFileSync, mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 
-const DEFAULT_FILE = '/tmp/imcron_diag/incident.log'
+const DEFAULT_FILE = process.platform === 'win32'
+  ? join(tmpdir(), 'imcron_diag', 'incident.log')
+  : '/tmp/imcron_diag/incident.log'
 
 export const INSTANCE = `${process.pid.toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 

@@ -1,11 +1,11 @@
 /**
  * Model-facing tools for dsh-im-cron (M3).
  *
- * Eight tools, three of them create work:
+ * Nine tools, three of them create work:
  *   imcron_remind  fixed text at the scheduled time (no model, no shell)
  *   imcron_run     one configuration-declared command
  *   imcron_ask     one agent turn in the job's dedicated task session
- * and five manage existing jobs (list / update / remove / pause / resume / trigger).
+ * and six manage existing jobs (list / update / remove / pause / resume / trigger).
  *
  * Target isolation: a model can never name a bot or a chat. The target comes from
  * `describeConversation(exec.agent.session.id)`, and management tools only see

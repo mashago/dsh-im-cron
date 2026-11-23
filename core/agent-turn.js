@@ -142,7 +142,6 @@ export function createAgentTurn({
   const waitBudgetMs = Math.max(pollMs !== null ? pollMs * 2 : (config.pollSeconds ?? 30) * 2_000, 200)
 
   const watchers = new Map()
-  const timers = new Set()
 
   function dispatch(session, event) {
     const id = session?.id
@@ -625,8 +624,6 @@ export function createAgentTurn({
   }
 
   function detach() {
-    for (const timer of timers) clearTimeout(timer)
-    timers.clear()
     if (typeof unsubscribe === 'function') unsubscribe()
     watchers.clear()
   }

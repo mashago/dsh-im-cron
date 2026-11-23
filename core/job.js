@@ -14,6 +14,7 @@ const UNRETRYABLE = new Set([
   'bad-request',
   'invalid-target',
   'target-conflict',
+  'target-rejected',
   'capability-unavailable',
   'target-changed',
   'account-changed',
