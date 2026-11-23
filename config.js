@@ -132,9 +132,14 @@ function readVolatile(value) {
 export function parseConfig(raw = {}, { env = process.env, home = homedir() } = {}) {
   const warnings = []
   let degraded = false
+  // Whether the `jobs` list can be trusted as the complete set of declared tasks.
+  // Pruning keys off this flag, not off `degraded`: a bad `pollSeconds` must not
+  // discard `stateDir` or freeze the declared-job sweep.
+  let jobsTrusted = true
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
   if (source !== raw) {
     degraded = true
+    jobsTrusted = false
     warnings.push('配置不是对象，已按默认值启动')
   }
   // Schemastery marks `allowGroup` volatile: the Loader hands it over as a
@@ -146,25 +151,73 @@ export function parseConfig(raw = {}, { env = process.env, home = homedir() } = 
     warnings.push('catchUp 已移除：错过的槽一律跳过，不再补跑')
   }
 
-  const merged = {
-    ...DEFAULT_CONFIG,
-    ...plain,
-    stateDir: typeof plain.stateDir === 'string' ? plain.stateDir : null,
-    scriptDir: typeof plain.scriptDir === 'string' ? plain.scriptDir : null,
-    jobs: Array.isArray(plain.jobs) ? plain.jobs : [],
-    agent: { ...DEFAULT_CONFIG.agent, ...(plain.agent && typeof plain.agent === 'object' ? plain.agent : {}) },
-  }
-
-  let parsed
-  try {
-    parsed = ConfigSchema.parse(merged)
-  } catch (error) {
+  const issueText = (error) => String(error?.issues?.[0]?.message ?? error?.message ?? error).split('\n')[0]
+  /** Validate one field; an invalid one falls back to its default and is reported. */
+  const readField = (label, schema, value) => {
+    const result = schema.safeParse(value)
+    if (result.success) return result.data
     degraded = true
-    warnings.push(`配置校验失败，已按默认值启动：${String(error?.message ?? error).split('\n')[0]}`)
-    parsed = ConfigSchema.parse({ ...DEFAULT_CONFIG })
+    warnings.push(`配置项 ${label} 不合法，已改用默认值：${issueText(result.error)}`)
+    return undefined
   }
 
-  const config = { ...DEFAULT_CONFIG, ...parsed, agent: { ...DEFAULT_CONFIG.agent, ...(parsed.agent ?? {}) } }
+  // Validate field by field. A single bad value used to discard the whole config,
+  // including `stateDir`, which silently pointed the plugin at the default
+  // `$DSH_HOME/im-cron` and made the configured tasks look gone.
+  const parsed = {}
+  for (const [key, schema] of Object.entries(ConfigSchema.shape)) {
+    if (key === 'agent' || key === 'jobs') continue
+    if (plain[key] === undefined) continue
+    const value = readField(key, schema, plain[key])
+    if (value !== undefined) parsed[key] = value
+    // An unusable stateDir means we may be looking at a different store than the
+    // operator intended, so the declared-job sweep must not delete anything there.
+    else if (key === 'stateDir') jobsTrusted = false
+  }
+
+  if (plain.agent !== undefined) {
+    if (plain.agent !== null && typeof plain.agent === 'object' && !Array.isArray(plain.agent)) {
+      const agent = {}
+      for (const [key, schema] of Object.entries(AgentSchema.shape)) {
+        if (plain.agent[key] === undefined) continue
+        const value = readField(`agent.${key}`, schema, plain.agent[key])
+        if (value !== undefined) agent[key] = value
+      }
+      parsed.agent = agent
+    } else {
+      degraded = true
+      warnings.push('配置项 agent 不合法，已改用默认值')
+    }
+  }
+
+  if (plain.jobs !== undefined) {
+    if (!Array.isArray(plain.jobs)) {
+      degraded = true
+      jobsTrusted = false
+      warnings.push('配置项 jobs 必须是数组，已改用空列表')
+    } else {
+      // One malformed declaration must not drop the others, but it does make the
+      // list incomplete: skip pruning this start rather than guess what was meant.
+      const jobs = []
+      plain.jobs.forEach((entry, index) => {
+        const result = JobDeclarationSchema.safeParse(entry)
+        if (result.success) jobs.push(result.data)
+        else {
+          degraded = true
+          jobsTrusted = false
+          warnings.push(`配置项 jobs[${index}] 不合法，已跳过：${issueText(result.error)}`)
+        }
+      })
+      parsed.jobs = jobs
+    }
+  }
+
+  const config = {
+    ...DEFAULT_CONFIG,
+    ...parsed,
+    agent: { ...DEFAULT_CONFIG.agent, ...(parsed.agent ?? {}) },
+    jobs: parsed.jobs ?? [],
+  }
 
   if (config.timezone !== null) {
     const zone = normalizeTimezone(config.timezone)
@@ -188,7 +241,7 @@ export function parseConfig(raw = {}, { env = process.env, home = homedir() } = 
     config.scriptDir = join(config.stateDir, 'workspace')
   }
 
-  return { config: Object.freeze(config), warnings, degraded }
+  return { config: Object.freeze(config), warnings, degraded, jobsTrusted }
 }
 
 export default parseConfig

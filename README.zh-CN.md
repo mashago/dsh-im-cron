@@ -284,6 +284,8 @@ dsh --profile web --dump-config | grep im-cron
 | `agent.attachWorkspace` | `false` | 任务会话是否挂进 workspace |
 | `agent.echoToChat` | `false` | 跑完是否把摘要 inject 回聊天会话 |
 
+单项配置非法时只会让该字段回退默认值，并在启动日志里报告；其余配置（包括 `stateDir`）保持不变。
+
 `jobs` 是声明式任务的唯一来源：删掉某个条目（或整份列表）会在下次启动时删除对应任务；
 聊天里创建的任务不受影响。只要有一条声明非法，或配置校验失败回退到了默认值，那一次启动就跳过清理，
 不会误删还能跑的任务。
@@ -580,7 +582,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。
 
 ```bash
 npm install
-npm test          # node --test，181 个用例
+npm test          # node --test，189 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、

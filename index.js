@@ -242,7 +242,7 @@ export async function applyDeclaredJobs(scheduler, config, logger, now = new Dat
   // created from a chat survive. A single invalid entry skips the sweep: a typo
   // must not delete a working task.
   if (!prune) {
-    logger?.warn?.('[im-cron] 配置不完整，本轮不清理已移除的声明任务')
+    logger?.warn?.('[im-cron] 声明任务配置不完整，本轮不清理已移除的声明任务')
   } else if (invalid) {
     logger?.warn?.('[im-cron] 声明任务里有非法条目，本轮不清理已移除的声明任务')
   } else {
@@ -264,7 +264,7 @@ export async function applyDeclaredJobs(scheduler, config, logger, now = new Dat
 export function startPlugin(ctx, rawConfig = {}, deps = {}) {
   const logger = deps.logger ?? resolveLogger(ctx)
   const clock = deps.now ?? (() => new Date())
-  const { config, warnings, degraded } = parseConfig(rawConfig)
+  const { config, warnings, jobsTrusted } = parseConfig(rawConfig)
   for (const warning of warnings) logger.warn?.(`[im-cron] ${warning}`)
 
   // The Loader's resolved config object: a volatile save updates these
@@ -334,7 +334,7 @@ export function startPlugin(ctx, rawConfig = {}, deps = {}) {
 
   const ready = scheduler
     .ensureLoaded()
-    .then(() => applyDeclaredJobs(scheduler, config, logger, clock(), { prune: !degraded }))
+    .then(() => applyDeclaredJobs(scheduler, config, logger, clock(), { prune: jobsTrusted }))
     .then((count) => {
       logger.info?.(`[im-cron] delivery=${im.available ? 'dshIm' : 'pending'} agent=${agentTurn.available ? 'on' : 'off'} jobs=${count} stateDir=${config.stateDir}`)
       return count
