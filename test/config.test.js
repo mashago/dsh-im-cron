@@ -73,6 +73,22 @@ test('config: the removed catchUp setting is ignored with a warning', () => {
   assert.equal(degraded, false)
   assert.equal(jobsTrusted, true)
   assert.match(warnings.join('\n'), /catchUp 已移除/u)
+  // A removed key keeps its specific message instead of a generic unknown one.
+  assert.doesNotMatch(warnings.join('\n'), /未知配置项/u)
+})
+
+test('config: an unknown key is reported instead of being dropped silently', () => {
+  const { config, warnings, degraded } = parseConfig({
+    pollSecond: 10,
+    agent: { timeOutSeconds: 60 },
+  }, IO)
+
+  assert.equal(config.pollSeconds, 30)
+  assert.equal(config.agent.timeoutSeconds, 900)
+  // A mistyped key name is a warning; only an invalid value fails the row.
+  assert.equal(degraded, false)
+  assert.match(warnings.join('\n'), /未知配置项 "pollSecond"/u)
+  assert.match(warnings.join('\n'), /未知配置项 "agent\.timeOutSeconds"/u)
 })
 
 test('config: an invalid stateDir blocks pruning of the fallback store', () => {

@@ -276,7 +276,7 @@ Rules:
 | `agent.permissionPreset` | empty | permission preset for task sessions, see [Permission preset](#permission-preset) |
 | `agent.taskSessionMaxAgeDays` | `30` | rotate a task session older than this |
 
-Every key is declared in the plugin's `Config` schema, so the Loader validates types and fills defaults. **An invalid value fails this plugin row** instead of silently using defaults; semantic errors (for example a malformed `activeHours` window) fail at startup with the field name. An unusable timezone only warns and falls back to the host zone. The CLI keeps the per-field fallback.
+Every key is declared in the plugin's `Config` schema, so the Loader validates types and fills defaults. **An invalid value fails this plugin row** instead of silently using defaults; semantic errors (for example a malformed `activeHours` window) fail at startup with the field name. An unusable timezone only warns and falls back to the host zone. A mistyped **key name** never fails the row: it is reported as an unknown key and ignored, so `pollSecond` cannot silently look like it works. The CLI keeps the per-field fallback.
 
 `jobs` is the source of truth for declared tasks: removing an entry (or the whole list) deletes that task on the next start; tasks created from a chat are never touched. A malformed declaration entry is skipped with a warning and the other tasks keep running — one typo must not take the whole schedule down. If a declaration is malformed or its schedule is invalid, that start also skips the cleanup instead of guessing which jobs were removed.
 

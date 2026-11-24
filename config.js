@@ -160,6 +160,16 @@ export function parseConfig(raw = {}, { env = process.env, home = homedir() } = 
   // read at startup; `tools.js` re-reads the live reference for the switch.
   const plain = Object.fromEntries(Object.entries(source).map(([key, value]) => [key, readVolatile(value)]))
 
+  // A mistyped key name used to be dropped without a trace: the value never
+  // reached the config and nothing was logged, so `pollSecond: 10` looked like
+  // it worked. Key-name mistakes are warnings, never a failed row — that stays
+  // reserved for values. `catchUp` is removed, not unknown: it keeps its own
+  // message below instead of a generic one.
+  const knownKeys = new Set([...Object.keys(ConfigSchema.shape), 'catchUp'])
+  for (const key of Object.keys(plain)) {
+    if (!knownKeys.has(key)) warnings.push(`未知配置项 "${key}"，已忽略`)
+  }
+
   if (plain.catchUp !== undefined) {
     warnings.push('catchUp 已移除：错过的槽一律跳过，不再补跑')
   }
@@ -190,6 +200,9 @@ export function parseConfig(raw = {}, { env = process.env, home = homedir() } = 
 
   if (plain.agent !== undefined) {
     if (plain.agent !== null && typeof plain.agent === 'object' && !Array.isArray(plain.agent)) {
+      for (const key of Object.keys(plain.agent)) {
+        if (!(key in AgentSchema.shape)) warnings.push(`未知配置项 "agent.${key}"，已忽略`)
+      }
       const agent = {}
       for (const [key, schema] of Object.entries(AgentSchema.shape)) {
         if (plain.agent[key] === undefined) continue
