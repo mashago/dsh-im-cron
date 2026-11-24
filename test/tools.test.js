@@ -121,6 +121,20 @@ test('tools: creating a task needs a ready channel', async () => {
   )
 })
 
+test('tools: management tools report a missing channel instead of "job not found"', async () => {
+  const { call, imCron, definitions, scheduler } = await harness()
+  const created = await call('imcron_remind', { text: 'x', cron: '0 9 * * *' })
+
+  imCron.available = false
+  // Without a channel every job looks missing; naming the real reason is better.
+  await assert.rejects(() => call('imcron_list'), (error) => error.code === 'channel-unavailable')
+  await assert.rejects(() => call('imcron_resume', { id: created.id }), (error) => error.code === 'channel-unavailable')
+  assert.notEqual(scheduler.getJob(created.id), undefined)
+
+  // Resuming from another chat can only ever answer "not found"; the description says so.
+  assert.match(definitions.get('imcron_resume').description, /another chat/u)
+})
+
 test('tools: remind creates a notify job bound to the private chat address', async () => {
   const { call, scheduler, dshIm } = await harness()
   const result = await call('imcron_remind', { text: '写日报', cron: '0 9 * * *' })

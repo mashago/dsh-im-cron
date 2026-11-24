@@ -83,15 +83,15 @@ function shouldDeliver(job, ok) {
   return true
 }
 
-function emptyFailure(error) {
-  return { kind: 'failed', reason: 'deliver-unavailable', error }
-}
-
 /**
  * Deliver one text under the error policy.
  * @returns {Promise<{ status: 'sent'|'failed'|'pending'|'skipped', error?: string, attempts: number }>}
  */
 async function deliverWithPolicy(send, job, text, { sleep = defaultSleep, logger = null, retryDelayMs = [5_000, 30_000] } = {}) {
+  // No sender at all means "there is nowhere to deliver", not "the bot is
+  // offline". The CLI runs jobs without dsh-im on purpose and expects `skipped`;
+  // a missing channel inside DSH still reaches `send` and goes through the
+  // retry path below.
   if (typeof send !== 'function') return { status: 'skipped', error: 'channel-unavailable', attempts: 0 }
   let attempts = 0
   let plainTried = false

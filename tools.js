@@ -202,9 +202,17 @@ function createToolRuntime(ctx) {
     }
   }
 
+  /**
+   * The channel facade, or a tool error when dsh-im has not provided one yet.
+   *
+   * `im.channel` is a lazy facade that always exists, so checking it proved
+   * nothing; `im.available` is the live probe. Management tools need this too:
+   * without a channel every job looks "not found", which is a worse answer than
+   * saying the channel is down.
+   */
   function channelOrThrow(im) {
-    if (im.channel === null || im.channel === undefined) {
-      throw new ToolError('channel-unavailable', '当前没有可用的 IM 渠道，无法建投递任务')
+    if (im.available !== true) {
+      throw new ToolError('channel-unavailable', '当前没有可用的 IM 渠道，暂时无法创建或管理定时任务')
     }
     return im.channel
   }
@@ -280,9 +288,6 @@ function createToolRuntime(ctx) {
 
   async function createJob({ im, exec, schedule, payload, deliver, maxRuns }) {
     const channel = channelOrThrow(im)
-    if (im.available !== true) {
-      throw new ToolError('channel-unavailable', '当前没有可用的 IM 渠道，无法建投递任务')
-    }
     const sessionId = sessionIdOf(exec)
     if (jobCount(im) >= im.config.maxJobs) {
       throw new ToolError('too-many-jobs', `任务总数已达上限 ${im.config.maxJobs}`)
@@ -740,6 +745,7 @@ function createToolRuntime(ctx) {
     name: 'imcron_resume',
     description: 'Resume a paused job of this chat. Slots missed while it was paused are skipped; the next future slot runs. '
       + 'It also clears the needs-rebind and invalid states, and recreates the chat\'s target if it was deleted. '
+      + 'The job must belong to this chat: a job created in another chat reports as not found, so resume it from the chat that created it. '
       + 'Use imcron_trigger to run it once immediately.',
     parameters: {
       type: 'object',
