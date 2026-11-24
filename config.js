@@ -209,14 +209,15 @@ export function parseConfig(raw = {}, { env = process.env, home = homedir() } = 
       jobsTrusted = false
       warnings.push('配置项 jobs 必须是数组，已改用空列表')
     } else {
-      // One malformed declaration must not drop the others, but it does make the
-      // list incomplete: skip pruning this start rather than guess what was meant.
+      // One malformed declaration must not drop the others, and it must not stop
+      // the plugin either: that would take every already-scheduled task down with
+      // it. It does make the list incomplete, so pruning is skipped this start
+      // rather than guessing what was meant.
       const jobs = []
       plain.jobs.forEach((entry, index) => {
         const result = JobDeclarationSchema.safeParse(entry)
         if (result.success) jobs.push(result.data)
         else {
-          degraded = true
           jobsTrusted = false
           warnings.push(`配置项 jobs[${index}] 不合法，已跳过：${issueText(result.error)}`)
         }

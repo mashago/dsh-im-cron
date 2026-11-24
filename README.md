@@ -278,7 +278,7 @@ Rules:
 
 Every key is declared in the plugin's `Config` schema, so the Loader validates types and fills defaults. **An invalid value fails this plugin row** instead of silently using defaults; semantic errors (for example a malformed `activeHours` window) fail at startup with the field name. An unusable timezone only warns and falls back to the host zone. The CLI keeps the per-field fallback.
 
-`jobs` is the source of truth for declared tasks: removing an entry (or the whole list) deletes that task on the next start; tasks created from a chat are never touched. If a declaration's schedule is invalid, that start skips the cleanup instead of guessing which jobs were removed.
+`jobs` is the source of truth for declared tasks: removing an entry (or the whole list) deletes that task on the next start; tasks created from a chat are never touched. A malformed declaration entry is skipped with a warning and the other tasks keep running — one typo must not take the whole schedule down. If a declaration is malformed or its schedule is invalid, that start also skips the cleanup instead of guessing which jobs were removed.
 
 `activeHours`:
 
@@ -556,7 +556,7 @@ JSON Lines: `<ISO time> [<module instance id>] <event> {<JSON>}`. **Two differen
 
 ## Implementation notes
 
-- The full config is declared in `Config`; defaults live only in `config.js`, and an invalid value fails the plugin row.
+- The full config is declared in `Config`; defaults live only in `config.js`, and an invalid value fails the plugin row (a malformed `jobs` entry is skipped instead, so a typo cannot stop every task).
 - Tools are plain `ToolDefinition` objects (no `@deepseek-ai/dsh-tools` dependency); each execute validates its own arguments. This avoids a dependency on a host-coupled package version.
 - `@deepseek-ai/schemastery` is a dependency, not a peer: profile and `link:` installs do not provide it, and schema objects are consumed structurally.
 

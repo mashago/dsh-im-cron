@@ -277,6 +277,39 @@ test('apply: an invalid declaration does not prune the other declared jobs', asy
   second.stop()
 })
 
+test('apply: a malformed declaration does not stop the plugin or the other tasks', async () => {
+  const dir = await tempDir()
+  const nowMs = Date.parse('2026-11-20T01:00:00+08:00')
+  const first = startPlugin(fakeCtx(), {
+    stateDir: dir,
+    jobs: [
+      { id: 'decl-keep', name: '保留', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text: 'a' } },
+      { id: 'decl-drop', name: '暂时缺失', schedule: { cron: '0 10 * * *' }, payload: { kind: 'notify', text: 'b' } },
+    ],
+  }, { now: () => new Date(nowMs) })
+  await first.ready
+  first.stop()
+
+  const ctx = fakeCtx()
+  // Missing `schedule` and `payload`: this used to fail the row and stop every task.
+  const second = startPlugin(ctx, {
+    stateDir: dir,
+    jobs: [
+      { id: 'decl-keep', name: '保留', schedule: { cron: '0 9 * * *' }, payload: { kind: 'notify', text: 'a' } },
+      { name: '坏的' },
+    ],
+  }, { now: () => new Date(nowMs) })
+  await second.ready
+
+  // Starts, keeps the valid declaration live, and does not prune the missing one.
+  assert.notEqual(second.scheduler.armedDeadline(), null)
+  assert.deepEqual(second.scheduler.listJobs().map((job) => job.id).sort(), ['decl-drop', 'decl-keep'])
+  assert.equal(second.scheduler.getJob('decl-keep').enabled, true)
+  assert.match(ctx.loggerObj.lines.warn.join('\n'), /jobs\[1\]/u)
+  assert.match(ctx.loggerObj.lines.warn.join('\n'), /本轮不清理/u)
+  second.stop()
+})
+
 test('apply: an invalid config is marked degraded and does not prune declared jobs', async () => {
   // A typo elsewhere makes parseConfig fall back to defaults; that reads as
   // "no declared jobs", which must not be allowed to delete a working task.

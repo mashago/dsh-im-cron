@@ -35,7 +35,7 @@ test('config: one invalid agent field keeps the other agent settings', () => {
   assert.equal(degraded, true)
 })
 
-test('config: a malformed declaration keeps its valid siblings but blocks pruning', () => {
+test('config: a malformed declaration keeps its valid siblings and blocks pruning, without failing the plugin', () => {
   const { config, warnings, degraded, jobsTrusted } = parseConfig({
     stateDir: '/tmp/imcron-jobs-state',
     jobs: [
@@ -46,7 +46,8 @@ test('config: a malformed declaration keeps its valid siblings but blocks prunin
 
   assert.deepEqual(config.jobs.map((job) => job.id), ['ok'])
   assert.equal(config.stateDir, '/tmp/imcron-jobs-state')
-  assert.equal(degraded, true)
+  // A typo in one declaration must not take every running task down with it.
+  assert.equal(degraded, false)
   // Incomplete list: the startup sweep must not treat the missing entry as removed.
   assert.equal(jobsTrusted, false)
   assert.match(warnings.join('\n'), /jobs\[1\]/u)
