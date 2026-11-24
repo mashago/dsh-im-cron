@@ -168,9 +168,9 @@ dsh --profile web --dump-config | grep im-cron
 
 - 创建返回 `{ id, nextRunAt, next3 }`；`next3` 让用户当场核对时间。
 - `imcron_update` 只改排期 / 文案 / `notify` / `maxRuns`；**载荷类型和目标不可改**，要换就删了重建。
-- 改排期会**重新锚定**（旧槽不再触发），并清除 `needs-rebind`，让任务重新可跑。只改文案不会清状态；修好目标后用 `imcron_resume`。
-- `imcron_resume` 也会清 `needs-rebind`。
-- `imcron_list` 不返回 `sessionId`（只在 CLI `--verbose` 和 `runs.jsonl` 里），显示**启用 / 暂停 / 已结束**，需要重新绑定时给出提示。
+- 改排期会**重新锚定**（旧槽不再触发），并清除 `needs-rebind` 或 `invalid`，让任务重新可跑。只改文案不会清状态；修好目标（或载荷）后用 `imcron_resume`。
+- `imcron_resume` 也会清 `needs-rebind` 和 `invalid`。清 `invalid` 不等于修好载荷：下一次运行还会失败并记下原因，这是聊天里建的任务唯一能看见的信号（它的载荷没法通过工具修改）。
+- `imcron_list` 不返回 `sessionId`（只在 CLI `--verbose` 和 `runs.jsonl` 里），显示**启用 / 暂停 / 已结束**，需要重新绑定或载荷无效时给出提示。
 - 目标隔离：模型不能指定 bot 或聊天，目标从当前会话反查；管理工具看不到别的聊天的任务（别人的 id 与"不存在"返回同一个错误）。
 - `imcron_trigger` 不消耗 `maxRuns` 预算。
 

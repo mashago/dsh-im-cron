@@ -156,6 +156,7 @@ function jobStatus(job) {
 /** Human-readable form of a job's internal `state` for the list render. */
 function jobStateLabel(state) {
   if (state === 'needs-rebind') return '投递目标失效（修复后用 imcron_resume）'
+  if (state === 'invalid') return '载荷无效（修复后用 imcron_resume 重新启用）'
   return String(state)
 }
 
@@ -602,7 +603,7 @@ function createToolRuntime(ctx) {
       + 'The payload type can NOT be changed (delete and recreate to switch between reminder, command and model task), '
       + 'and the target chat can not be changed. '
       + 'Changing the schedule re-anchors it, so slots that belonged to the old schedule never fire; '
-      + 'it also re-arms a job paused by a delivery error (needs-rebind). '
+      + 'it also re-arms a job paused by a delivery error (needs-rebind) or by an unusable payload (invalid). '
       + 'Use it for "move my daily report to 10:00" or "stop pushing the backup output", not for re-creating a task.',
     parameters: {
       type: 'object',
@@ -637,9 +638,13 @@ function createToolRuntime(ctx) {
         // Re-anchor: never fire for a slot that existed under the old schedule.
         next.lastFiredFor = new Date().toISOString()
         delete next.endedAt
-        // A schedule change is an explicit re-arm: clear a delivery-failure state
-        // too, otherwise the job stays unrunnable until imcron_resume is called.
-        if (next.state === 'needs-rebind') delete next.state
+        // A schedule change is an explicit re-arm: clear a state that stops the
+        // job too, otherwise it stays unrunnable until imcron_resume is called.
+        // `invalid` is set when a run finds the payload unusable; clearing it
+        // makes the next run report the failure instead of silently never
+        // running, and it is the only way out for a chat-created job whose
+        // payload cannot be repaired through the tools.
+        if (next.state === 'needs-rebind' || next.state === 'invalid') delete next.state
       }
 
       if (args.text !== undefined) {
@@ -734,7 +739,7 @@ function createToolRuntime(ctx) {
   tools.imcron_resume = {
     name: 'imcron_resume',
     description: 'Resume a paused job of this chat. Slots missed while it was paused are skipped; the next future slot runs. '
-      + 'It also clears the needs-rebind delivery state and recreates the chat\'s target if it was deleted. '
+      + 'It also clears the needs-rebind and invalid states, and recreates the chat\'s target if it was deleted. '
       + 'Use imcron_trigger to run it once immediately.',
     parameters: {
       type: 'object',
@@ -753,7 +758,10 @@ function createToolRuntime(ctx) {
         throw new ToolError('job-ended', `任务 ${job.id} 已经结束（一次性任务），请重新创建`)
       }
       const next = { ...job, enabled: true }
-      if (next.state === 'needs-rebind') delete next.state
+      // Both stalled states are explicit re-arms: `needs-rebind` once the target
+      // exists again, `invalid` so the next run reports why the payload is
+      // unusable instead of the job staying parked forever.
+      if (next.state === 'needs-rebind' || next.state === 'invalid') delete next.state
 
       // A deleted target cannot be repaired by clearing the flag alone. When this
       // job uses the chat's canonical target, recreate it (the id is deterministic

@@ -320,6 +320,46 @@ test('tools: a text-only update leaves needs-rebind alone', async () => {
   assert.equal(scheduler.getJob(created.id).payload.text, '新文案')
 })
 
+test('tools: a schedule update re-arms an invalid job and the list explains it', async () => {
+  const { call, definitions, scheduler } = await harness()
+  const created = await call('imcron_remind', { text: '日报', cron: '0 9 * * *' })
+  await scheduler.upsertJob({ ...scheduler.getJob(created.id), state: 'invalid' })
+
+  const listed = await call('imcron_list')
+  const text = definitions.get('imcron_list').output.render({}, listed)[0].text
+  assert.match(text, /载荷无效.*imcron_resume/u)
+
+  await call('imcron_update', { id: created.id, cron: '0 10 * * *' })
+  const job = scheduler.getJob(created.id)
+  assert.equal(job.state, undefined)
+  assert.equal(job.schedule.expression, '0 10 * * *')
+})
+
+test('tools: a text-only update leaves invalid alone', async () => {
+  const { call, scheduler } = await harness()
+  const created = await call('imcron_remind', { text: '旧文案', cron: '0 9 * * *' })
+  await scheduler.upsertJob({ ...scheduler.getJob(created.id), state: 'invalid' })
+
+  await call('imcron_update', { id: created.id, text: '新文案' })
+  assert.equal(scheduler.getJob(created.id).state, 'invalid')
+  assert.equal(scheduler.getJob(created.id).payload.text, '新文案')
+})
+
+test('tools: resume clears an invalid payload state so the job is scheduled again', async () => {
+  const { call, definitions, scheduler } = await harness()
+  const created = await call('imcron_remind', { text: '日报', cron: '0 9 * * *' })
+  await scheduler.upsertJob({ ...scheduler.getJob(created.id), state: 'invalid' })
+
+  await call('imcron_resume', { id: created.id })
+  assert.equal(scheduler.getJob(created.id).state, undefined)
+  assert.equal(scheduler.getJob(created.id).enabled, true)
+
+  const listed = await call('imcron_list')
+  assert.notEqual(listed.jobs[0].nextRunAt, '')
+  const text = definitions.get('imcron_list').output.render({}, listed)[0].text
+  assert.doesNotMatch(text, /载荷无效/u)
+})
+
 test('tools: a job whose target was deleted stays listable and can be resumed', async () => {
   const { call, scheduler, dshIm } = await harness()
   const created = await call('imcron_remind', { text: '日报', cron: '0 9 * * *' })

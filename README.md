@@ -169,9 +169,9 @@ Behavior notes:
 
 - Creation returns `{ id, nextRunAt, next3 }`; `next3` lets the user confirm the time on the spot.
 - `imcron_update` changes schedule / text / `notify` / `maxRuns` only; **payload type and target cannot be changed** — delete and recreate.
-- Changing the schedule **re-anchors** it (old slots never fire) and clears a `needs-rebind` delivery state, so the job runs again. A text-only update leaves `needs-rebind` alone; fix the target and use `imcron_resume`.
-- `imcron_resume` also clears `needs-rebind`.
-- `imcron_list` does not return `sessionId` (only CLI `--verbose` and `runs.jsonl` do), and renders **enabled / paused / finished**, plus a hint when a job needs a rebind.
+- Changing the schedule **re-anchors** it (old slots never fire) and clears a `needs-rebind` delivery state or an `invalid` payload state, so the job runs again. A text-only update leaves both alone; fix the target (or the payload) and use `imcron_resume`.
+- `imcron_resume` also clears `needs-rebind` and `invalid`. Clearing `invalid` does not repair the payload: the next run fails again and records the reason, which is the only visible signal for a chat-created job whose payload cannot be edited.
+- `imcron_list` does not return `sessionId` (only CLI `--verbose` and `runs.jsonl` do), and renders **enabled / paused / finished**, plus a hint when a job needs a rebind or its payload is invalid.
 - Target isolation: the model cannot name a bot or a chat; the target comes from the current session. Management tools cannot see another chat's jobs (their ids and "not found" return the same error).
 - `imcron_trigger` does not consume the `maxRuns` budget.
 
