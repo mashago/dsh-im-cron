@@ -566,7 +566,7 @@ JSON Lines: `<ISO time> [<module instance id>] <event> {<JSON>}`. **Two differen
 
 ```bash
 npm install
-npm test          # node --test, 213 cases
+npm test          # node --test, 219 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`, the three payloads and delivery states, turn ownership and timeouts, script path validation, tool arguments and copy.
