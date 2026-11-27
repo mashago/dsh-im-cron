@@ -33,14 +33,14 @@ window.__ModuleLoader__.load({
       ['provider', '模型提供方', '默认 = 部署默认模型路由'],
       ['model', '模型', '默认 = 部署默认模型'],
       ['reasoningEffort', '推理等级', '默认 = provider 默认档'],
-      ['permissionPreset', '任务会话权限档', '默认 = 部署默认权限档（通常是 workspace-write + 需审批）'],
+      ['permissionPreset', '任务会话权限档', '默认 = 部署默认权限档'],
     ]
 
-    const PERMISSION_OPTIONS = [
-      ['', '跟随部署默认'],
-      ['workspace-write', 'workspace-write（沙箱内，需审批）'],
-      ['danger-full-access', 'danger-full-access（无沙箱，不审批）'],
-    ]
+    /** Offered when the deployment's permission catalog cannot be read. */
+    const FALLBACK_PERMISSION_OPTIONS = Object.freeze([
+      { value: 'workspace-write', name: 'workspace-write（沙箱内，需审批）', description: '无人值守时会挂到超时' },
+      { value: 'danger-full-access', name: 'danger-full-access（无沙箱，不审批）' },
+    ])
 
     const styles = {
       form: { display: 'flex', flexDirection: 'column', gap: '14px', maxWidth: '640px' },
@@ -447,6 +447,124 @@ window.__ModuleLoader__.load({
       return snapshot
     }
 
+    // ---- permission catalog -----------------------------------------------
+    // The preset names belong to the deployment's permission table; the form
+    // renders whatever `permissionPresets.catalog()` advertises and falls back
+    // to a small static list when that service is unavailable.
+
+    function normalizePermissionCatalog(value) {
+      const source = value !== null && typeof value === 'object' && !Array.isArray(value.options)
+        && value.value !== null && typeof value.value === 'object' ? value.value : value
+      const options = []
+      const seen = new Set()
+      for (const option of Array.isArray(source?.options) ? source.options : []) {
+        const id = cleanId(option?.value)
+        if (id === '' || seen.has(id)) continue
+        seen.add(id)
+        const description = cleanLabel(option?.description, '')
+        options.push({ value: id, name: cleanLabel(option?.name, id), ...(description === '' ? {} : { description }) })
+      }
+      const defaultPreset = cleanId(source?.defaultPreset)
+      return { options, defaultPreset: seen.has(defaultPreset) ? defaultPreset : '' }
+    }
+
+    /** Menu rows for the permission picker; the deployment catalog wins over the fallback. */
+    function permissionOptions(catalog, current) {
+      const source = Array.isArray(catalog?.options) && catalog.options.length > 0
+        ? catalog.options : FALLBACK_PERMISSION_OPTIONS
+      const currentId = cleanId(current)
+      const defaultOption = source.find((option) => option.value === catalog?.defaultPreset)
+      const options = [{
+        kind: 'option',
+        key: 'permission:default',
+        label: '跟随部署默认',
+        description: defaultOption === undefined ? '由部署的默认权限档决定' : `部署默认：${defaultOption.name}`,
+        selected: currentId === '',
+        patch: { permissionPreset: '' },
+      }]
+      for (const option of source) {
+        options.push({
+          kind: 'option',
+          key: `permission:${option.value}`,
+          label: option.name,
+          ...(option.description === undefined ? {} : { description: option.description }),
+          selected: currentId === option.value,
+          patch: { permissionPreset: option.value },
+        })
+      }
+      return options
+    }
+
+    /** The trigger label for the stored preset, falling back to the raw name. */
+    function permissionLabel(catalog, current) {
+      const currentId = cleanId(current)
+      if (currentId === '') return '跟随部署默认'
+      const known = (Array.isArray(catalog?.options) ? catalog.options : [])
+        .find((option) => option.value === currentId)
+      return known?.name ?? currentId
+    }
+
+    /** The stored preset is not in the deployment table (renamed or removed). */
+    function permissionUnknown(catalog, current) {
+      const currentId = cleanId(current)
+      if (currentId === '' || catalog === null || catalog === undefined) return false
+      if (!Array.isArray(catalog.options) || catalog.options.length === 0) return false
+      return !catalog.options.some((option) => option.value === currentId)
+    }
+
+    const permissionCatalog = { value: null, error: null, promise: null }
+
+    async function fetchPermissionCatalog(ctx) {
+      const api = ctx?.get?.('remote.permissionPresets')
+      if (typeof api?.catalog !== 'function') {
+        throw new Error('当前 DSH 没有权限目录接口（permissionPresets.catalog）')
+      }
+      const result = await api.catalog()
+      if (result !== null && typeof result === 'object' && result.ok === false) {
+        const code = result.error?.code ?? 'catalog-failed'
+        const message = result.error?.message ?? '权限目录读取失败'
+        throw new Error(`${code}: ${message}`)
+      }
+      const value = result !== null && typeof result === 'object' && result.ok === true
+        ? result.value : result
+      return normalizePermissionCatalog(value)
+    }
+
+    function loadPermissionCatalog() {
+      if (permissionCatalog.promise !== null) return permissionCatalog.promise
+      if (permissionCatalog.value !== null) return Promise.resolve(permissionCatalog.value)
+      permissionCatalog.promise = fetchPermissionCatalog(clientCtx)
+        .then((value) => {
+          permissionCatalog.value = value
+          permissionCatalog.error = null
+          return value
+        })
+        .catch((error) => {
+          permissionCatalog.error = error instanceof Error ? error.message : String(error)
+          return null
+        })
+        .finally(() => {
+          permissionCatalog.promise = null
+        })
+      return permissionCatalog.promise
+    }
+
+    function usePermissionCatalog() {
+      const [snapshot, setSnapshot] = React.useState(() => ({
+        value: permissionCatalog.value, error: permissionCatalog.error,
+      }))
+      React.useEffect(() => {
+        let alive = true
+        loadPermissionCatalog().then(() => {
+          if (alive) setSnapshot({ value: permissionCatalog.value, error: permissionCatalog.error })
+        })
+        return () => {
+          alive = false
+        }
+      }, [])
+      return snapshot
+    }
+
     /** Row style: the hovered row lifts, the selected row wins over hover, disabled rows never lift. */
     function optionStyle(option, activeKey) {
       return {
@@ -541,6 +659,7 @@ window.__ModuleLoader__.load({
       const [groupAllowed, setGroupAllowed] = React.useState(() => group?.state?.value?.allowGroup === true)
       const [status, setStatus] = React.useState('idle')
       const catalogState = useModelCatalog()
+      const permissionState = usePermissionCatalog()
 
       React.useEffect(() => {
         setDraft(valuesOf(state))
@@ -584,6 +703,9 @@ window.__ModuleLoader__.load({
         if (effortSet && entry !== undefined && storedEffort === undefined) {
           warnings.push('当前保存的思考强度不在该模型的可选范围，请重选或留空。')
         }
+      }
+      if (permissionUnknown(permissionState.value, draft.permissionPreset)) {
+        warnings.push('当前保存的权限档不在部署预设表里（可能改名或已移除），请重选。')
       }
 
       const fieldByName = new Map(FIELDS.map((item) => [item[0], item]))
@@ -657,7 +779,7 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const [, permissionLabel, permissionHint] = fieldByName.get('permissionPreset')
+      const [, permissionFieldLabel, permissionHint] = fieldByName.get('permissionPreset')
 
       return h('form', { onSubmit: submit, style: styles.form },
         showHeading ? h('h3', { style: styles.title }, 'agent 任务会话') : null,
@@ -672,15 +794,17 @@ window.__ModuleLoader__.load({
           ? null
           : h('div', { key: 'warnings', style: fieldStyle },
             ...warnings.map((warning, index) => h('p', { key: `warning:${index}`, style: styles.warn }, warning))),
-        h('label', { key: 'permissionPreset', style: fieldStyle },
-          h('span', { style: styles.label }, permissionLabel),
-          h('select', {
-            value: draft.permissionPreset ?? '',
+        h('div', { key: 'permissionPreset', style: fieldStyle },
+          h('span', { style: styles.label }, permissionFieldLabel),
+          h(Picker, {
+            value: permissionLabel(permissionState.value, draft.permissionPreset),
             disabled,
-            style: inputStyle,
-            onChange: (event) => setDraft({ ...draft, permissionPreset: event.target.value }),
-          }, ...PERMISSION_OPTIONS.map(([value, text]) => h('option', { key: value, value }, text))),
-          h('small', { style: styles.hint }, permissionHint)),
+            options: permissionOptions(permissionState.value, draft.permissionPreset),
+            onSelect: (patch) => setDraft({ ...draft, ...patch }),
+          }),
+          h('small', { style: styles.hint }, permissionState.error === null
+            ? permissionHint
+            : `权限目录读取失败：${permissionState.error}（显示的是内置回退列表）`)),
         group === undefined ? null : h('div', { style: styles.groupBox },
           h('label', { style: styles.checkboxLabel },
             h('input', {
@@ -790,6 +914,10 @@ window.__ModuleLoader__.load({
         effortName,
         modelOptions,
         effortOptions,
+        normalizePermissionCatalog,
+        permissionOptions,
+        permissionLabel,
+        permissionUnknown,
         optionStyle,
       }),
     }

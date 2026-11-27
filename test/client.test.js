@@ -241,3 +241,68 @@ test('client: the hovered menu row is highlighted; selected and disabled rows ke
   assert.equal(disabled.background, 'transparent')
   assert.equal(disabled.opacity, 0.5)
 })
+
+const permissionFixture = {
+  options: [
+    {
+      value: 'workspace-write-strict',
+      name: '工作区可写（不审批）',
+      description: '无人值守任务推荐',
+    },
+    { value: 'workspace-write', name: '工作区可写（需审批）', description: '无人值守会挂到超时' },
+    { value: 'danger-full-access', name: '全开（不审批）' },
+    { value: '', name: 'ignored' },
+    { value: 'workspace-write-strict', name: 'duplicate' },
+  ],
+  defaultOptions: [],
+  defaultPreset: 'workspace-write',
+}
+
+test('client: the permission catalog is normalized for the picker', () => {
+  const catalog = internals.normalizePermissionCatalog(permissionFixture)
+  assert.deepEqual(catalog.options.map((option) => option.value),
+    ['workspace-write-strict', 'workspace-write', 'danger-full-access'])
+  assert.equal(catalog.options[0].name, '工作区可写（不审批）')
+  assert.equal(catalog.options[0].description, '无人值守任务推荐')
+  assert.equal(catalog.options[2].description, undefined)
+  assert.equal(catalog.defaultPreset, 'workspace-write')
+
+  const unwrapped = internals.normalizePermissionCatalog({ ok: true, value: permissionFixture })
+  assert.equal(unwrapped.options.length, 3)
+  const noDefault = internals.normalizePermissionCatalog({ ...permissionFixture, defaultPreset: 'gone' })
+  assert.equal(noDefault.defaultPreset, '')
+  assert.deepEqual(internals.normalizePermissionCatalog(null), { options: [], defaultPreset: '' })
+})
+
+test('client: permission options follow the deployment catalog and fall back when it is missing', () => {
+  const catalog = internals.normalizePermissionCatalog(permissionFixture)
+  const options = internals.permissionOptions(catalog, '')
+  assert.equal(options[0].label, '跟随部署默认')
+  assert.equal(options[0].selected, true)
+  assert.match(options[0].description, /工作区可写（需审批）/u)
+  assert.deepEqual(options[1].patch, { permissionPreset: 'workspace-write-strict' })
+  assert.equal(options[1].description, '无人值守任务推荐')
+
+  const chosen = internals.permissionOptions(catalog, 'danger-full-access')
+  const selected = chosen.filter((option) => option.selected === true)
+  assert.deepEqual(selected.map((option) => option.key), ['permission:danger-full-access'])
+
+  const fallback = internals.permissionOptions(null, '')
+  assert.deepEqual(fallback.map((option) => option.label).slice(1),
+    ['workspace-write（沙箱内，需审批）', 'danger-full-access（无沙箱，不审批）'])
+  assert.match(fallback[0].description, /部署的默认权限档/u)
+})
+
+test('client: a stored preset outside the catalog is labelled raw and flagged', () => {
+  const catalog = internals.normalizePermissionCatalog(permissionFixture)
+  assert.equal(internals.permissionLabel(catalog, ''), '跟随部署默认')
+  assert.equal(internals.permissionLabel(catalog, 'workspace-write-strict'), '工作区可写（不审批）')
+  assert.equal(internals.permissionLabel(catalog, 'gone-preset'), 'gone-preset')
+  assert.equal(internals.permissionUnknown(catalog, ''), false)
+  assert.equal(internals.permissionUnknown(catalog, 'workspace-write'), false)
+  assert.equal(internals.permissionUnknown(catalog, 'gone-preset'), true)
+  assert.equal(internals.permissionUnknown(null, 'gone-preset'), false)
+  assert.equal(internals.permissionUnknown({ options: [], defaultPreset: '' }, 'gone-preset'), false)
+  assert.equal(internals.permissionOptions(catalog, 'gone-preset')
+    .some((option) => option.selected === true), false)
+})

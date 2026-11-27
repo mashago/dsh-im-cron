@@ -19,6 +19,14 @@ import { diag } from '../diag.js'
 
 const MAX_TRACKED_TURNS = 8
 
+/**
+ * Sandboxed preset a scheduled run should use when the operator configured none.
+ * Unattended turns cannot answer approvals, so the deployment default (often
+ * `workspace-write` + ask) would hang until the timeout; a deployment that
+ * advertises this strict variant gets it automatically.
+ */
+const RECOMMENDED_PRESET = 'workspace-write-strict'
+
 function safeGet(ctx, name) {
   try {
     return typeof ctx?.get === 'function' ? ctx.get(name) : undefined
@@ -307,19 +315,27 @@ export function createAgentTurn({
     const settings = getAgentSettings()
     const fromSettings = settings.permissionPreset
     const fromConfig = config.agent?.permissionPreset
-    const preset = fromSettings ?? fromConfig
     const service = permissionPresets()
+    const advertised = Array.isArray(service?.names) ? service.names : null
+    const preset = fromSettings ?? fromConfig
+      ?? (advertised !== null && advertised.includes(RECOMMENDED_PRESET) ? RECOMMENDED_PRESET : null)
     diag('permission-preset:resolve', {
       fromSettings: fromSettings ?? null,
       fromConfig: fromConfig ?? null,
       chosen: preset ?? null,
+      advertised,
       settingsSnapshot: settings,
       service: service === null ? 'missing' : typeof service.set,
       sessionPresent: agent?.session !== undefined,
     })
-    if (preset === null || preset === undefined) return
+    if (preset === null) return
     if (service === null || typeof service.set !== 'function') {
       logger?.warn?.('[im-cron] permissionPresets 不可用，跳过权限档设置')
+      return
+    }
+    if (advertised !== null && !advertised.includes(preset)) {
+      diag('permission-preset:unknown', { preset, advertised })
+      logger?.warn?.(`[im-cron] 权限档 "${preset}" 不在部署预设表里（可用：${advertised.join(', ')}），沿用会话当前权限档`)
       return
     }
     try {

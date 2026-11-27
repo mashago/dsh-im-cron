@@ -381,11 +381,19 @@ A slot missed while DSH was down or the host was asleep is **skipped**, and only
 
 `agent.permissionPreset` applies to **task sessions only** (it writes that session's own log); chat and Web sessions are unaffected.
 
+The value is a **name from the deployment's permission table** (`permissionPresets` in the profile), not a free
+sandbox/approval pair, and the form lists whatever that table advertises. With the recommended table:
+
 | Value | sandbox | approval | Consequence |
 |---|---|---|---|
-| empty | deployment default (`workspace-write` + `ask`) | | calls needing approval **hang until the timeout** (see [Known limitations](#known-limitations)) |
-| `workspace-write` | writable inside the workspace | `ask` | same as above |
+| empty | deployment default | | with the stock table that is `workspace-write` + `ask`: calls needing approval **hang until the timeout** (see [Known limitations](#known-limitations)) |
+| `workspace-write-strict` | writable inside the workspace | `never` | **recommended for unattended tasks**: in-workspace writes pass, wider writes and escalations are rejected immediately |
+| `workspace-write` | writable inside the workspace | `ask` | only useful while a human watches the GUI; without one it hangs |
+| `read-only` | read-only | `never` | pure lookups; any write or escalation fails fast |
 | `danger-full-access` | fully open | `never` | no sandbox, no approval; setuid programs such as `ps` / `top` can run |
+
+With no preset configured, a deployment that advertises `workspace-write-strict` gets it automatically; otherwise the
+task follows the deployment default. An unknown name is reported by the run (warning) instead of silently switching.
 
 Equivalent YAML:
 
@@ -397,7 +405,7 @@ Equivalent YAML:
     provider: deepseek-account
     model: deepseek-flash
     reasoningEffort: low
-    permissionPreset: danger-full-access
+    permissionPreset: workspace-write-strict
 ```
 
 Or use **Web → Plugins → dsh-im-cron → 配置任务会话**. Provider, model and reasoning effort are picked from the Host's model catalog (`session/modelCatalog`): one list grouped by provider, and an effort list that only offers the levels the chosen model supports. Both keep a "follow deployment / model default" option, and if the catalog cannot be read the form falls back to plain text fields. It takes effect on the next agent run (the fields are Loader-volatile and `agent-turn.js` re-reads them). Model, reasoning-effort and permission changes apply to the live task session; only `cwd`, `agentPreset`, or clearing a model pin rebuild that session. A task's model pin never changes the deployment default model. The same dialog has the group-chat switch. Notify / script payloads are unaffected.
@@ -566,7 +574,7 @@ JSON Lines: `<ISO time> [<module instance id>] <event> {<JSON>}`. **Two differen
 
 ```bash
 npm install
-npm test          # node --test, 241 cases
+npm test          # node --test, 246 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`, the three payloads and delivery states, turn ownership and timeouts, script path validation, tool arguments and copy.

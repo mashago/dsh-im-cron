@@ -380,11 +380,19 @@ DSH 停机或主机休眠期间错过的槽**直接跳过**；只有落在 fresh
 
 `agent.permissionPreset` 只作用于**任务会话**（写该会话自己的日志），不影响聊天或 Web 会话。
 
+这里填的是**部署权限预设表里的名字**（profile 里的 `permissionPresets`），不是自由拼的「沙箱 × 审批」组合；
+表单会列出部署实际配的档位。按推荐配置：
+
 | 值 | sandbox | approval | 后果 |
 |---|---|---|---|
-| 留空 | 部署默认（`workspace-write` + `ask`） | | 需要审批的调用会**挂到超时**（见[已知限制](#已知限制)） |
-| `workspace-write` | 工作区内可写 | `ask` | 同上 |
+| 留空 | 部署默认 | | 出厂表下是 `workspace-write` + `ask`：需要审批的调用会**挂到超时**（见[已知限制](#已知限制)） |
+| `workspace-write-strict` | 工作区内可写 | `never` | **无人值守推荐**：工作区内写放行，越界写/提权立即拒绝 |
+| `workspace-write` | 工作区内可写 | `ask` | 只适合有人盯着 GUI 时用；无人值守会挂住 |
+| `read-only` | 只读 | `never` | 纯查询；任何写或提权立即失败 |
 | `danger-full-access` | 全开 | `never` | 无沙箱、不审批；`ps` / `top` 等 setuid 程序可执行 |
+
+没有显式配置时，如果部署提供了 `workspace-write-strict`，任务会话会自动用它；否则跟随部署默认。
+填了部署表里不存在的名字，运行时会 warn 并沿用会话当前权限档，不会静默切换。
 
 等价的手写配置：
 
@@ -396,7 +404,7 @@ DSH 停机或主机休眠期间错过的槽**直接跳过**；只有落在 fresh
     provider: deepseek-account
     model: deepseek-flash
     reasoningEffort: low
-    permissionPreset: danger-full-access
+    permissionPreset: workspace-write-strict
 ```
 
 也可以在 **Web → 插件 → dsh-im-cron → 配置任务会话** 里改。模型提供方 / 模型 / 推理等级从宿主的模型目录（`session/modelCatalog`）里选：一个按 provider 分组的模型列表，以及只列出所选模型支持档位的推理等级列表，两者都保留「跟随部署默认 / 跟随模型默认」。模型目录读不到时该表单回退成纯文本框，仍可手填保存。保存后**下一次 agent 任务执行**生效（字段是 Loader volatile，`agent-turn.js` 每轮重新读取）。模型 / 推理等级 / 权限档对**正在用的任务会话原地生效**；只有 `cwd`、`agentPreset` 变更或把模型改回「跟随部署默认」才重建会话。任务的模型设置不会改动部署默认模型。同一个弹窗里还有群聊开关。通知 / 脚本载荷不受影响。
@@ -565,7 +573,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。同
 
 ```bash
 npm install
-npm test          # node --test，241 个用例
+npm test          # node --test，246 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、三种载荷与投递三态、回合归属与超时、脚本路径校验、工具参数与文案。

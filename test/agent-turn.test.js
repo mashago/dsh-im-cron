@@ -7,7 +7,7 @@ import { setAgentSettings } from '../agent-settings.js'
  * Minimal stand-in for DSH's session/agent services: sessions are just ids,
  * events are dispatched synchronously from a per-followup plan.
  */
-function createHarness({ plan, timeoutSeconds = 5, maxConcurrent = 2, permissionPreset = null, agentModel = true, modelReject = null } = {}) {
+function createHarness({ plan, timeoutSeconds = 5, maxConcurrent = 2, permissionPreset = null, agentModel = true, modelReject = null, permissionNames = null } = {}) {
   setAgentSettings({})
   const listeners = new Set()
   const sessions = new Map()
@@ -115,7 +115,12 @@ function createHarness({ plan, timeoutSeconds = 5, maxConcurrent = 2, permission
   const ctx = {
     get: (name) => {
       if (name === 'sessionController') return controller
-      if (name === 'permissionPresets') return { set: (session, name) => presetCalls.push({ session, name }) }
+      if (name === 'permissionPresets') {
+        return {
+          ...(permissionNames === null ? {} : { names: permissionNames }),
+          set: (session, name) => presetCalls.push({ session, name }),
+        }
+      }
       if (name === 'llm') {
         return {
           async resolveCallConfig(selection) {
@@ -659,6 +664,28 @@ test('agent: a reused task session is re-pinned, not skipped', async () => {
   // The reuse path must apply the preset too, otherwise a pinned preset never
   // reaches a task session that already exists.
   assert.equal(harness.presetCalls.length, 2)
+})
+
+test('agent: an unconfigured task takes the advertised strict preset', async () => {
+  const harness = createHarness({
+    permissionNames: ['workspace-write', 'workspace-write-strict', 'danger-full-access'],
+  })
+  const result = await harness.runtime().runTurn(job(), { prompt: 'x' })
+  assert.equal(result.ok, true)
+  assert.deepEqual(harness.presetCalls.map((call) => call.name), ['workspace-write-strict'])
+})
+
+test('agent: an unknown configured preset warns instead of switching', async () => {
+  const warnings = []
+  const harness = createHarness({ permissionNames: ['workspace-write', 'danger-full-access'] })
+  setAgentSettings({ cwd: '/tmp', permissionPreset: 'gone-preset' })
+  const result = await harness.runtime({
+    logger: { warn: (message) => warnings.push(String(message)), info() {} },
+  }).runTurn(job(), { prompt: 'x' })
+  assert.equal(result.ok, true)
+  assert.equal(harness.presetCalls.length, 0)
+  assert.ok(warnings.some((message) => message.includes('gone-preset')), warnings.join(' | '))
+  setAgentSettings({})
 })
 
 test('agent: no configured preset leaves the session policy alone', async () => {

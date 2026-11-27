@@ -20,8 +20,8 @@ diag('module-load', { instance: INSTANCE })
 
 export const FIELDS = Object.freeze(['cwd', 'agentPreset', 'provider', 'model', 'reasoningEffort', 'permissionPreset'])
 
-/** The permission presets this form may pin on a task session; blank follows the deployment. */
-export const PERMISSION_PRESETS = Object.freeze(['workspace-write', 'danger-full-access'])
+/** Fallback presets for a deployment whose permission catalog cannot be read. */
+export const FALLBACK_PERMISSION_PRESETS = Object.freeze(['workspace-write', 'danger-full-access'])
 
 export const Config = z.object({
   cwd: z.string().description('任务会话的工作目录；留空 = DSH 进程 cwd').volatile(),
@@ -29,8 +29,8 @@ export const Config = z.object({
   provider: z.string().description('模型提供方，例如 deepseek-account；留空 = 跟随部署默认').volatile(),
   model: z.string().description('模型，例如 deepseek-flash；留空 = 跟随部署默认').volatile(),
   reasoningEffort: z.string().description('推理等级；留空 = 跟随 provider 默认').volatile(),
-  permissionPreset: z.union([z.const('workspace-write'), z.const('danger-full-access')])
-    .description('任务会话的权限档；留空 = 跟随部署默认。danger-full-access 会同时关闭沙箱与审批')
+  permissionPreset: z.string()
+    .description('任务会话的权限档（部署预设表里的名字，例如 workspace-write-strict）；留空 = 跟随部署默认')
     .volatile(),
 })
 
@@ -53,8 +53,8 @@ export function normalizeAgentSettings(config = {}) {
     const value = readField(config?.[field])
     out[field] = typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
   }
-  // An unknown preset name would only warn on every run; treat it as unset.
-  if (!PERMISSION_PRESETS.includes(out.permissionPreset)) out.permissionPreset = undefined
+  // Preset names live in the deployment's permission table, not here: an
+  // unknown value is reported by the run, never silently dropped.
   return Object.freeze(out)
 }
 

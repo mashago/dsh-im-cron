@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import {
   Config,
   FIELDS,
-  PERMISSION_PRESETS,
+  FALLBACK_PERMISSION_PRESETS,
   apply,
   getAgentSettings,
   normalizeAgentSettings,
@@ -75,15 +75,14 @@ test('agent settings: unloading the row clears the settings', () => {
   assert.equal(getAgentSettings().cwd, undefined)
 })
 
-test('agent settings: the permission preset accepts only known presets and blanks as unset', () => {
+test('agent settings: any permission preset name passes; blanks mean "follow the deployment"', () => {
   assert.equal(normalizeAgentSettings({ permissionPreset: 'danger-full-access' }).permissionPreset, 'danger-full-access')
-  assert.equal(normalizeAgentSettings({ permissionPreset: 'workspace-write' }).permissionPreset, 'workspace-write')
   assert.equal(normalizeAgentSettings({ permissionPreset: '  ' }).permissionPreset, undefined)
-  // An unknown name would only warn on every run, so it normalizes to unset.
-  assert.equal(normalizeAgentSettings({ permissionPreset: 'not-a-preset' }).permissionPreset, undefined)
-  assert.deepEqual(PERMISSION_PRESETS, ['workspace-write', 'danger-full-access'])
-  const accepted = Config['~standard'].validate({ permissionPreset: 'danger-full-access' })
+  // Preset names belong to the deployment table; the run reports an unknown
+  // name instead of the settings layer silently dropping it.
+  assert.equal(normalizeAgentSettings({ permissionPreset: 'workspace-write-strict' }).permissionPreset, 'workspace-write-strict')
+  assert.deepEqual(FALLBACK_PERMISSION_PRESETS, ['workspace-write', 'danger-full-access'])
+  const accepted = Config['~standard'].validate({ permissionPreset: 'workspace-write-strict' })
   assert.equal(accepted.issues, undefined)
-  assert.equal(normalizeAgentSettings(accepted.value).permissionPreset, 'danger-full-access')
-  assert.notEqual(Config['~standard'].validate({ permissionPreset: 'not-a-preset' }).issues, undefined)
+  assert.equal(normalizeAgentSettings(accepted.value).permissionPreset, 'workspace-write-strict')
 })
