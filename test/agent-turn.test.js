@@ -7,7 +7,7 @@ import { setAgentSettings } from '../agent-settings.js'
  * Minimal stand-in for DSH's session/agent services: sessions are just ids,
  * events are dispatched synchronously from a per-followup plan.
  */
-function createHarness({ plan, timeoutSeconds = 5, maxConcurrent = 2, permissionPreset = null, withModelRoute = false } = {}) {
+function createHarness({ plan, timeoutSeconds = 5, maxConcurrent = 2, permissionPreset = null, agentModel = true, modelReject = null } = {}) {
   setAgentSettings({})
   const listeners = new Set()
   const sessions = new Map()
@@ -31,6 +31,13 @@ function createHarness({ plan, timeoutSeconds = 5, maxConcurrent = 2, permission
       },
       status: 'idle',
       turns: 0,
+      ...(agentModel ? {
+        model: {
+          select(selection) {
+            modelSelections.push({ sessionId, ...selection })
+          },
+        },
+      } : {}),
       cancel(cause) { cancels.push({ sessionId, cause }) },
       followup(message) {
         agent.turns += 1
@@ -84,7 +91,9 @@ function createHarness({ plan, timeoutSeconds = 5, maxConcurrent = 2, permission
       created.push({ sessionId, cwd, agentPreset })
       const agent = makeAgent(sessionId)
       sessions.set(sessionId, agent)
-      return { sessionId, agentPreset }
+      // Real DSH composes the deployment default preset when none is requested,
+      // and reports it back; the task stores that resolved name.
+      return { sessionId, agentPreset: agentPreset ?? 'standard' }
     },
     async selectModel(request) {
       selections.push(request)
@@ -100,10 +109,25 @@ function createHarness({ plan, timeoutSeconds = 5, maxConcurrent = 2, permission
   }
 
   const presetCalls = []
+  const modelSelections = []
+  const modelValidations = []
+  let rejectModel = modelReject
   const ctx = {
     get: (name) => {
       if (name === 'sessionController') return controller
       if (name === 'permissionPresets') return { set: (session, name) => presetCalls.push({ session, name }) }
+      if (name === 'llm') {
+        return {
+          async resolveCallConfig(selection) {
+            modelValidations.push(selection)
+            if (rejectModel !== null) {
+              const error = new Error('model route rejected')
+              error.code = rejectModel
+              throw error
+            }
+          },
+        }
+      }
       return undefined
     },
   }
@@ -114,6 +138,9 @@ function createHarness({ plan, timeoutSeconds = 5, maxConcurrent = 2, permission
     selections,
     sessions,
     presetCalls,
+    modelSelections,
+    modelValidations,
+    rejectModel: (value) => { rejectModel = value },
     created,
     cancels,
     emit,
@@ -429,7 +456,7 @@ test('agent settings: an unchanged config keeps the same session', async () => {
   setAgentSettings({})
 })
 
-test('agent settings: a provider/model route is pinned with selectModel', async () => {
+test('agent settings: a provider/model route is pinned on the task session only', async () => {
   const harness = createHarness()
   setAgentSettings({ cwd: '/tmp', provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' })
   const runtime = harness.runtime()
@@ -438,11 +465,160 @@ test('agent settings: a provider/model route is pinned with selectModel', async 
   assert.equal(result.ok, true)
   assert.equal(harness.created.length, 1)
   assert.equal(harness.created[0].cwd, '/tmp')
+  assert.deepEqual(harness.modelValidations, [{ provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' }])
+  assert.equal(harness.modelSelections.length, 1)
+  assert.equal(harness.modelSelections[0].sessionId, result.sessionId)
+  assert.equal(harness.modelSelections[0].provider, 'deepseek-account')
+  assert.equal(harness.modelSelections[0].model, 'deepseek-flash')
+  assert.equal(harness.modelSelections[0].reasoningEffort, 'high')
+  // selectModel would also persist the deployment default, which task settings must not touch.
+  assert.equal(harness.selections.length, 0)
+  setAgentSettings({})
+})
+
+test('agent settings: a Host without agent.model.select falls back to selectModel', async () => {
+  const harness = createHarness({ agentModel: false })
+  setAgentSettings({ cwd: '/tmp', provider: 'deepseek-account', model: 'deepseek-flash' })
+  const result = await harness.runtime().runTurn(job(), { prompt: 'route me' })
+  assert.equal(result.ok, true)
+  assert.equal(harness.modelSelections.length, 0)
   assert.equal(harness.selections.length, 1)
   assert.equal(harness.selections[0].sessionId, result.sessionId)
-  assert.equal(harness.selections[0].provider, 'deepseek-account')
-  assert.equal(harness.selections[0].model, 'deepseek-flash')
-  assert.equal(harness.selections[0].reasoningEffort, 'high')
+  setAgentSettings({})
+})
+
+test('agent settings: a model change applies in place and keeps the task session', async () => {
+  const harness = createHarness()
+  setAgentSettings({ cwd: '/tmp', provider: 'p', model: 'model-a', reasoningEffort: 'high' })
+  const runtime = harness.runtime()
+  const first = await runtime.runTurn(
+    job({ task: { cwd: '/tmp', sessionId: undefined, runs: 0 } }),
+    { prompt: 'one' },
+  )
+  assert.equal(first.ok, true)
+  assert.equal(harness.created.length, 1)
+
+  setAgentSettings({ cwd: '/tmp', provider: 'p', model: 'model-b', reasoningEffort: 'high' })
+  const second = await runtime.runTurn(job({ task: first.task }), { prompt: 'two' })
+  assert.equal(second.ok, true)
+  assert.equal(second.sessionId, first.sessionId)
+  assert.equal(harness.created.length, 1)
+  assert.deepEqual(harness.modelSelections.at(-1), {
+    sessionId: first.sessionId, provider: 'p', model: 'model-b', reasoningEffort: 'high',
+  })
+  assert.equal(second.task.config.model, 'model-b')
+  setAgentSettings({})
+})
+
+test('agent settings: the resolved default preset does not rebuild the session', async () => {
+  const harness = createHarness()
+  const runtime = harness.runtime()
+  const first = await runtime.runTurn(
+    job({ task: { cwd: '/tmp', sessionId: undefined, runs: 0 } }),
+    { prompt: 'one' },
+  )
+  assert.equal(first.ok, true)
+  // The deployment composed "standard", but the operator never configured one.
+  assert.equal(first.task.agentPreset, 'standard')
+  assert.equal(first.task.config.agentPreset, undefined)
+
+  const second = await runtime.runTurn(job({ task: first.task }), { prompt: 'two' })
+  assert.equal(second.ok, true)
+  assert.equal(second.sessionId, first.sessionId)
+  assert.equal(harness.created.length, 1)
+})
+
+test('agent settings: an effort-only change applies in place too', async () => {
+  const harness = createHarness()
+  setAgentSettings({ cwd: '/tmp', provider: 'p', model: 'model-a', reasoningEffort: 'high' })
+  const runtime = harness.runtime()
+  const first = await runtime.runTurn(job(), { prompt: 'one' })
+  assert.equal(first.ok, true)
+
+  setAgentSettings({ cwd: '/tmp', provider: 'p', model: 'model-a', reasoningEffort: 'low' })
+  const second = await runtime.runTurn(job({ task: first.task }), { prompt: 'two' })
+  assert.equal(second.ok, true)
+  assert.equal(second.sessionId, first.sessionId)
+  assert.equal(harness.created.length, 1)
+  assert.equal(harness.modelSelections.at(-1).reasoningEffort, 'low')
+  assert.equal(second.task.config.reasoningEffort, 'low')
+  setAgentSettings({})
+})
+
+test('agent settings: a permission-only change keeps the task session', async () => {
+  const harness = createHarness()
+  setAgentSettings({ cwd: '/tmp', permissionPreset: 'workspace-write' })
+  const runtime = harness.runtime()
+  const first = await runtime.runTurn(job(), { prompt: 'one' })
+  assert.equal(first.ok, true)
+
+  setAgentSettings({ cwd: '/tmp', permissionPreset: 'danger-full-access' })
+  const second = await runtime.runTurn(job({ task: first.task }), { prompt: 'two' })
+  assert.equal(second.ok, true)
+  assert.equal(second.sessionId, first.sessionId)
+  assert.equal(harness.created.length, 1)
+  assert.deepEqual(harness.presetCalls.map((call) => call.name), ['workspace-write', 'danger-full-access'])
+  setAgentSettings({})
+})
+
+test('agent settings: clearing the permission preset rebuilds the task session', async () => {
+  const harness = createHarness()
+  setAgentSettings({ cwd: '/tmp', permissionPreset: 'workspace-write' })
+  const runtime = harness.runtime()
+  const first = await runtime.runTurn(job(), { prompt: 'one' })
+  assert.equal(first.ok, true)
+
+  setAgentSettings({ cwd: '/tmp' })
+  const second = await runtime.runTurn(job({ task: first.task }), { prompt: 'two' })
+  assert.equal(second.ok, true)
+  assert.notEqual(second.sessionId, first.sessionId)
+  assert.equal(harness.created.length, 2)
+  assert.equal(second.task.config.permissionPreset, undefined)
+  setAgentSettings({})
+})
+
+test('agent settings: clearing the model pin rebuilds the task session', async () => {
+  const harness = createHarness()
+  setAgentSettings({ cwd: '/tmp', provider: 'p', model: 'model-a' })
+  const runtime = harness.runtime()
+  const first = await runtime.runTurn(job(), { prompt: 'one' })
+  assert.equal(first.ok, true)
+
+  setAgentSettings({ cwd: '/tmp' })
+  const second = await runtime.runTurn(job({ task: first.task }), { prompt: 'two' })
+  assert.equal(second.ok, true)
+  assert.notEqual(second.sessionId, first.sessionId)
+  assert.equal(harness.created.length, 2)
+  assert.equal(harness.modelSelections.length, 1)
+  assert.equal(second.task.config.provider, undefined)
+  setAgentSettings({})
+})
+
+test('agent settings: an unusable route fails the run before creating a session', async () => {
+  const harness = createHarness({ modelReject: 'model-unavailable' })
+  setAgentSettings({ cwd: '/tmp', provider: 'p', model: 'missing' })
+  const result = await harness.runtime().runTurn(job(), { prompt: 'x' })
+  assert.equal(result.ok, false)
+  assert.equal(result.result.reason, 'model-unavailable')
+  assert.match(result.text, /不可用/u)
+  assert.equal(harness.created.length, 0)
+  assert.equal(harness.modelSelections.length, 0)
+  setAgentSettings({})
+})
+
+test('agent settings: a running session is not re-pinned mid-turn', async () => {
+  const harness = createHarness()
+  setAgentSettings({ cwd: '/tmp', provider: 'p', model: 'model-a' })
+  const runtime = harness.runtime()
+  const first = await runtime.runTurn(job(), { prompt: 'one' })
+  assert.equal(first.ok, true)
+  harness.sessions.get(first.sessionId).status = 'running'
+
+  setAgentSettings({ cwd: '/tmp', provider: 'p', model: 'model-b' })
+  const second = await runtime.runTurn(job({ task: first.task }), { prompt: 'two' })
+  assert.equal(second.ok, false)
+  assert.equal(second.result.reason, 'running')
+  assert.equal(harness.modelSelections.length, 1)
   setAgentSettings({})
 })
 

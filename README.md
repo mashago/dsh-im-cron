@@ -369,7 +369,7 @@ A slot missed while DSH was down or the host was asleep is **skipped**, and only
 
 ## The `agent` payload
 
-- One task, one **dedicated task session**: the first run calls `sessionController.create({cwd, agentPreset})` (then `selectModel` when a model route is configured); later runs reuse it via `resolveAgent`. cwd defaults to the plugin state directory (`$DSH_HOME/im-cron`); set `cwd` on the agent-session row to change it.
+- One task, one **dedicated task session**: the first run calls `sessionController.create({cwd, agentPreset})` (then pins the configured model on that Agent via `agent.model.select`, validated by `llm.resolveCallConfig`); later runs reuse it via `resolveAgent`, re-pinning only the model/effort when you change it. cwd defaults to the plugin state directory (`$DSH_HOME/im-cron`); set `cwd` on the agent-session row to change it.
 - The session is **not bound to a chat** → the channel never mirrors it → the answer appears **once**, when the plugin sends it.
 - Turn ownership follows the message id of our `followup`: `turn/start` carries only `{turn}`; a matching `user/message` claims it; `turn/end` for that turn closes it.
 - **Two-stage timeout**: the soft deadline only logs and keeps waiting; only the hard deadline cancels the turn and records `failed/stuck`. A turn finishing between the two still delivers its answer.
@@ -400,7 +400,7 @@ Equivalent YAML:
     permissionPreset: danger-full-access
 ```
 
-Or use **Web → Plugins → dsh-im-cron → 配置任务会话**. It takes effect on the next agent run (the fields are Loader-volatile and `agent-turn.js` re-reads them; a change rebuilds that task's session). The same dialog has the group-chat switch. Notify / script payloads are unaffected.
+Or use **Web → Plugins → dsh-im-cron → 配置任务会话**. Provider, model and reasoning effort are picked from the Host's model catalog (`session/modelCatalog`): one list grouped by provider, and an effort list that only offers the levels the chosen model supports. Both keep a "follow deployment / model default" option, and if the catalog cannot be read the form falls back to plain text fields. It takes effect on the next agent run (the fields are Loader-volatile and `agent-turn.js` re-reads them). Model, reasoning-effort and permission changes apply to the live task session; only `cwd`, `agentPreset`, or clearing a model pin rebuild that session. A task's model pin never changes the deployment default model. The same dialog has the group-chat switch. Notify / script payloads are unaffected.
 
 ---
 
@@ -566,7 +566,7 @@ JSON Lines: `<ISO time> [<module instance id>] <event> {<JSON>}`. **Two differen
 
 ```bash
 npm install
-npm test          # node --test, 219 cases
+npm test          # node --test, 241 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`, the three payloads and delivery states, turn ownership and timeouts, script path validation, tool arguments and copy.

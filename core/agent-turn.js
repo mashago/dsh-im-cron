@@ -89,6 +89,48 @@ function failure(reason, { error, text = '', task, blocked = false } = {}) {
   }
 }
 
+/** A model pin needs both halves; a half-filled pair is ignored at runtime. */
+function pinned(config) {
+  return typeof config?.provider === 'string' && config.provider !== ''
+    && typeof config?.model === 'string' && config.model !== ''
+}
+
+/** The session-level selection carried by a frozen config or the live settings. */
+function selectionOf(config) {
+  return {
+    provider: config?.provider,
+    model: config?.model,
+    ...(config?.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort }),
+  }
+}
+
+function sameSelection(left, right) {
+  return (left?.provider ?? null) === (right?.provider ?? null)
+    && (left?.model ?? null) === (right?.model ?? null)
+    && (left?.reasoningEffort ?? null) === (right?.reasoningEffort ?? null)
+}
+
+/**
+ * Settings that force a new session because a live one cannot take them:
+ * `cwd` and `agentPreset` are composition-time, and a pinned model cannot be
+ * moved back to "follow the deployment default" — no API clears a recorded
+ * selection. Model, reasoning effort and the permission preset apply in place.
+ */
+function sameStructuralConfig(previous, next, { fallbackPreset = null, requestedPreset = undefined } = {}) {
+  if ((previous?.cwd ?? null) !== (next?.cwd ?? null)) return false
+  // `desired.agentPreset` falls back to the task's own resolved preset, which the
+  // first run stored on `task` but not in the frozen config; only an explicitly
+  // configured preset is a user request, so only that justifies a rebuild.
+  if (requestedPreset !== undefined && (previous?.agentPreset ?? null) !== requestedPreset) return false
+  if (pinned(previous) && !pinned(next)) return false
+  // A cleared permission preset cannot be applied in place: the session keeps
+  // whatever preset it already had, so only a rebuild restores the default.
+  const previousPreset = previous?.permissionPreset ?? fallbackPreset ?? null
+  const nextPreset = next?.permissionPreset ?? fallbackPreset ?? null
+  if (previousPreset !== null && nextPreset === null) return false
+  return true
+}
+
 /**
  * Create the agent-turn runtime.
  * @param {{
@@ -115,6 +157,7 @@ export function createAgentTurn({
   let controllerService = null
   let agentsService = null
   let presetsService = null
+  let llmService = null
   const controller = () => {
     const found = safeGet(ctx, 'sessionController')
     if (found !== undefined && found !== null) controllerService = found
@@ -129,6 +172,11 @@ export function createAgentTurn({
     const found = safeGet(ctx, 'permissionPresets')
     if (found !== undefined && found !== null) presetsService = found
     return presetsService
+  }
+  const llm = () => {
+    const found = safeGet(ctx, 'llm')
+    if (found !== undefined && found !== null) llmService = found
+    return llmService
   }
   const hasController = () => {
     const value = controller()
@@ -203,13 +251,21 @@ export function createAgentTurn({
   // ---- session resolution ------------------------------------------------
   /**
    * Create the dedicated task session through the public Session Controller:
-   * `create` composes the preset and default route, `selectModel` pins the
-   * configured route, `resolveAgent` hands back the live Agent.
+   * `create` composes the preset and default route, `resolveAgent` hands back
+   * the live Agent, and the configured model route is pinned on that Agent.
    */
   async function createTaskSession(task, desired) {
     const sc = controller()
     const request = { cwd: desired.cwd, ...(desired.agentPreset === undefined ? {} : { agentPreset: desired.agentPreset }) }
     diag('create-task-session:enter', { request, desired })
+    // Validate the route before creating anything: a bad provider/model/effort
+    // must fail the run instead of leaving an orphan session behind.
+    let selection = null
+    if (pinned(desired)) {
+      const checked = await resolveSelection(desired)
+      if (!checked.ok) return checked
+      selection = checked.selection
+    }
     let created
     try {
       created = await sc.create(request)
@@ -225,22 +281,13 @@ export function createAgentTurn({
     const sessionId = sessionIdOf(created)
     if (sessionId === null) return { ok: false, result: failure('session-create-failed', { error: 'no-session-id' }) }
 
-    if (desired.provider !== undefined && desired.model !== undefined && typeof sc.selectModel === 'function') {
-      try {
-        await sc.selectModel({
-          sessionId,
-          provider: desired.provider,
-          model: desired.model,
-          ...(desired.reasoningEffort === undefined ? {} : { reasoningEffort: desired.reasoningEffort }),
-        })
-      } catch (error) {
-        logger?.warn?.(`[im-cron] 任务会话模型选择失败，沿用默认模型：${errorCode(error)}`)
-      }
-    }
-
     const resolved = await sc.resolveAgent(sessionId)
     if (resolved?.agent === undefined) {
       return { ok: false, result: failure('session-create-failed', { error: errorCode(resolved?.error ?? 'agent-unavailable') }) }
+    }
+    if (selection !== null) {
+      const applied = await applySelection(resolved.agent, selection)
+      if (!applied.ok) return applied
     }
     await applyPermissionPreset(resolved.agent)
     return {
@@ -284,6 +331,84 @@ export function createAgentTurn({
     }
   }
 
+  // ---- model selection ---------------------------------------------------
+  /**
+   * Validate one pinned route the way `sessionController.selectModel` does:
+   * resolveCallConfig rejects an unknown provider/model or an unsupported
+   * reasoning effort before any turn starts.
+   */
+  async function resolveSelection(desired) {
+    const selection = selectionOf(desired)
+    const runtime = llm()
+    if (runtime !== null && typeof runtime.resolveCallConfig === 'function') {
+      try {
+        await runtime.resolveCallConfig(selection)
+      } catch (error) {
+        const code = errorCode(error)
+        diag('model-selection:rejected', { selection, error: code })
+        return {
+          ok: false,
+          result: failure('model-unavailable', {
+            error: code,
+            text: `⚠️ 任务会话模型 ${selection.provider}/${selection.model} 不可用（${code}）`,
+          }),
+        }
+      }
+    }
+    return { ok: true, selection }
+  }
+
+  /**
+   * Apply a validated selection to this Agent's own session record.
+   *
+   * `agent.model.select` changes only the task session. The public
+   * `sessionController.selectModel` also persists the deployment default model,
+   * which task settings must never touch, so it is only the fallback for a Host
+   * whose Agent runtime does not expose `model.select`.
+   */
+  async function applySelection(agent, selection) {
+    const model = agent?.model
+    if (typeof model?.select === 'function') {
+      try {
+        model.select(selection)
+        diag('model-selection:applied', { selection, via: 'agent.model.select' })
+        return { ok: true }
+      } catch (error) {
+        const code = errorCode(error)
+        diag('model-selection:failed', { selection, error: code })
+        return {
+          ok: false,
+          result: failure('model-selection-failed', {
+            error: code,
+            text: `⚠️ 任务会话切换模型失败（${code}）`,
+          }),
+        }
+      }
+    }
+    const sc = controller()
+    const sessionId = agent?.session?.id ?? null
+    if (sessionId !== null && typeof sc?.selectModel === 'function') {
+      try {
+        await sc.selectModel({ sessionId, ...selection })
+        logger?.warn?.('[im-cron] 当前 DSH 没有 agent.model.select，退回 sessionController.selectModel（会同时改写部署默认模型）')
+        return { ok: true }
+      } catch (error) {
+        const code = errorCode(error)
+        return {
+          ok: false,
+          result: failure('model-unavailable', {
+            error: code,
+            text: `⚠️ 任务会话模型 ${selection.provider}/${selection.model} 不可用（${code}）`,
+          }),
+        }
+      }
+    }
+    return {
+      ok: false,
+      result: failure('model-selection-unavailable', { text: '⚠️ 任务会话无法设置模型：当前 DSH 没有可用接口' }),
+    }
+  }
+
   async function resolveExisting(sessionId) {
     if (hasController()) {
       const result = await controller().resolveAgent(sessionId)
@@ -319,13 +444,27 @@ export function createAgentTurn({
       if (taskExpired(task)) {
         diag('ensure-agent:decision', { decision: 'rebuild-expired' })
         logger?.info?.(`[im-cron] 任务会话 ${task.sessionId} 超过 ${maxAgeDays} 天，换新会话`)
-      } else if (task.config === undefined ? hasSettings : !sameConfig(task.config, desired)) {
+      } else if (task.config === undefined
+        ? hasSettings
+        : !sameStructuralConfig(task.config, desired, {
+          fallbackPreset: config.agent?.permissionPreset ?? null,
+          requestedPreset: getAgentSettings().agentPreset,
+        })) {
         diag('ensure-agent:decision', { decision: 'rebuild-config-changed' })
-        logger?.info?.('[im-cron] 任务会话配置已变更，下一次运行重建会话')
+        logger?.info?.('[im-cron] 任务会话的 cwd / preset / 模型归属变更，下一次运行重建会话')
       } else {
         diag('ensure-agent:decision', { decision: 'reuse' })
         const resolved = await resolveExisting(task.sessionId)
         if (resolved.ok) {
+          // Model and effort live on the session itself, so they change in place
+          // and the task keeps its context. Never touch a running Agent.
+          if (resolved.agent?.status !== 'running'
+            && pinned(desired) && !sameSelection(selectionOf(task.config), selectionOf(desired))) {
+            const checked = await resolveSelection(desired)
+            if (!checked.ok) return checked
+            const applied = await applySelection(resolved.agent, checked.selection)
+            if (!applied.ok) return applied
+          }
           // A reused session keeps whatever it had; re-pin so a changed preset applies.
           await applyPermissionPreset(resolved.agent)
           return resolved
@@ -485,10 +624,6 @@ export function createAgentTurn({
     const settings = getAgentSettings()
     return ['cwd', 'agentPreset', 'provider', 'model', 'reasoningEffort', 'permissionPreset']
       .some((field) => settings[field] !== undefined)
-  }
-
-  function sameConfig(left, right) {
-    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
   }
 
   /**

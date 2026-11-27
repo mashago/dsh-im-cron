@@ -368,7 +368,7 @@ DSH 停机或主机休眠期间错过的槽**直接跳过**；只有落在 fresh
 
 ## `agent` 载荷
 
-- 一条任务一个**任务专用会话**：首跑 `sessionController.create({cwd, agentPreset})`（配了模型路由再 `selectModel`），之后 `resolveAgent` 复用。cwd 默认是插件状态目录（`$DSH_HOME/im-cron`）；要换就在 agent 任务会话设置里填 `cwd`。
+- 一条任务一个**任务专用会话**：首跑 `sessionController.create({cwd, agentPreset})`（配了模型路由就用 `agent.model.select` 把它 pin 到该 Agent 上，先经 `llm.resolveCallConfig` 校验），之后 `resolveAgent` 复用；改模型/强度时只原地重设，不重建。cwd 默认是插件状态目录（`$DSH_HOME/im-cron`）；要换就在 agent 任务会话设置里填 `cwd`。
 - 会话**不绑定聊天** → 渠道不会镜像它 → 答案只在插件 `send` 时出现**一次**。
 - 回合归属靠我们那条 `followup` 的 message id：`turn/start` 只带 `{turn}`，`user/message` 命中我们的 id 才认领，`turn/end` 同 turn 收尾。
 - **两段式超时**：软截止只记日志、继续等；硬截止仍未结束才 `cancel({kind:'user'})` 并记 `failed/stuck`。软硬之间完成的回合照常投递真实答案。
@@ -399,7 +399,7 @@ DSH 停机或主机休眠期间错过的槽**直接跳过**；只有落在 fresh
     permissionPreset: danger-full-access
 ```
 
-也可以在 **Web → 插件 → dsh-im-cron → 配置任务会话** 里改。保存后**下一次 agent 任务执行**生效（字段是 Loader volatile，`agent-turn.js` 每轮重新读取；改动会重建该任务的会话）。同一个弹窗里还有群聊开关。通知 / 脚本载荷不受影响。
+也可以在 **Web → 插件 → dsh-im-cron → 配置任务会话** 里改。模型提供方 / 模型 / 推理等级从宿主的模型目录（`session/modelCatalog`）里选：一个按 provider 分组的模型列表，以及只列出所选模型支持档位的推理等级列表，两者都保留「跟随部署默认 / 跟随模型默认」。模型目录读不到时该表单回退成纯文本框，仍可手填保存。保存后**下一次 agent 任务执行**生效（字段是 Loader volatile，`agent-turn.js` 每轮重新读取）。模型 / 推理等级 / 权限档对**正在用的任务会话原地生效**；只有 `cwd`、`agentPreset` 变更或把模型改回「跟随部署默认」才重建会话。任务的模型设置不会改动部署默认模型。同一个弹窗里还有群聊开关。通知 / 脚本载荷不受影响。
 
 ---
 
@@ -565,7 +565,7 @@ JSON Lines，每行 `<ISO 时间> [<模块实例id>] <事件名> {<JSON>}`。同
 
 ```bash
 npm install
-npm test          # node --test，219 个用例
+npm test          # node --test，241 个用例
 ```
 
 测试覆盖：时间表达式与 DST、调度器的原子占位 / 崩溃恢复 / `maxRuns` / `activeHours`、三种载荷与投递三态、回合归属与超时、脚本路径校验、工具参数与文案。
