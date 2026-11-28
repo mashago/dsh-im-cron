@@ -1,4 +1,4 @@
-# dsh-im-cron
+# <img src="assets/icon.svg" alt="" width="36" height="36" valign="middle"> dsh-im-cron
 
 **English** | [简体中文](README.zh-CN.md)
 
