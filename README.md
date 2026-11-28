@@ -410,6 +410,22 @@ Equivalent YAML:
 
 Or use **Web → Plugins → dsh-im-cron → 配置任务会话**. Provider, model and reasoning effort are picked from the Host's model catalog (`session/modelCatalog`): one list grouped by provider, and an effort list that only offers the levels the chosen model supports. Both keep a "follow deployment / model default" option, and if the catalog cannot be read the form falls back to plain text fields. It takes effect on the next agent run (the fields are Loader-volatile and `agent-turn.js` re-reads them). Model, reasoning-effort and permission changes apply to the live task session; only `cwd`, `agentPreset`, or clearing a model pin rebuild that session. A task's model pin never changes the deployment default model. The same dialog has the group-chat switch. Notify / script payloads are unaffected.
 
+### Jobs page
+
+Next to **配置任务会话**, the **查看定时任务** button opens one dialog with every job of every delivery target:
+
+- grouped by target (channel + conversation label), then by status (`运行中` / `暂停中` / `已结束` / `异常`);
+- newest created first inside a status;
+- actions follow the status: running → pause / delete, paused → run (resume) / delete, ended and stalled jobs → delete only;
+- each row shows the task's content preview (reminder text, script path, or the first 500 characters of the prompt),
+  schedule, next run (absolute + relative), run budget, last run (result / duration / delivery / error), delivery
+  policy, active hours, creation and end time, and the job id.
+
+The page is **owner-only and global**: unlike the chat-scoped `imcron_*` tools it lists and manages jobs across all
+targets, because a page has no chat context. A job whose delivery target disappeared (`needs-rebind`) or whose payload
+is invalid can only be repaired from its chat (`imcron_resume`), so the page only offers delete for those. Deleting a
+job does not cancel a run already in flight. The list is read when the dialog opens and on **刷新**; it does not poll.
+
 ---
 
 ## Execution cap
@@ -574,7 +590,7 @@ JSON Lines: `<ISO time> [<module instance id>] <event> {<JSON>}`. **Two differen
 
 ```bash
 npm install
-npm test          # node --test, 246 cases
+npm test          # node --test, 261 cases
 ```
 
 Coverage: time expressions and DST, the scheduler's atomic claim / crash recovery / `maxRuns` / `activeHours`, the three payloads and delivery states, turn ownership and timeouts, script path validation, tool arguments and copy.

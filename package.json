@@ -43,7 +43,9 @@
     "cordis.patch.yml",
     "README.md",
     "README.zh-CN.md",
-    "examples"
+    "examples",
+    "jobs-view.js",
+    "http-api.js"
   ],
   "dsh": {
     "bundle": {

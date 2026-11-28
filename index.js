@@ -14,6 +14,7 @@ import { createScheduler } from './core/scheduler.js'
 import { parseSchedule } from './core/schedule.js'
 import { createDshImChannel, probeDshIm } from './channel/dsh-im.js'
 import { createAgentTurn } from './core/agent-turn.js'
+import { installJobsRoutes } from './http-api.js'
 
 export const name = 'im-cron'
 export const inject = []
@@ -349,6 +350,7 @@ export function startPlugin(ctx, rawConfig = {}, deps = {}) {
   })
   const scheduler = createScheduler({ store, config, runner, logger, now: clock })
 
+  let disposeJobsApi = null
   const stop = () => {
     try {
       scheduler.stop()
@@ -365,6 +367,13 @@ export function startPlugin(ctx, rawConfig = {}, deps = {}) {
         dispose()
       } catch (error) {
         logger.warn?.(`[im-cron] 卸载工具策略失败：${String(error)}`)
+      }
+    }
+    if (disposeJobsApi !== null) {
+      try {
+        disposeJobsApi()
+      } catch (error) {
+        logger.warn?.(`[im-cron] 卸载任务页面接口失败：${String(error)}`)
       }
     }
   }
@@ -399,6 +408,14 @@ export function startPlugin(ctx, rawConfig = {}, deps = {}) {
     get reason() { return im.reason },
   }
   if (typeof ctx?.provide === 'function') ctx.provide('imCron', Object.freeze(service))
+
+  // The owner's Plugins-page jobs dialog talks to the Host through two Web
+  // routes; profiles without a Web server simply skip them.
+  try {
+    disposeJobsApi = installJobsRoutes({ ctx, service, logger })
+  } catch (error) {
+    logger.warn?.(`[im-cron] 注册任务页面接口失败：${String(error?.message ?? error)}`)
+  }
 
   return {
     scheduler,

@@ -18,6 +18,7 @@
 import { randomBytes } from 'node:crypto'
 import { hostTimezone } from './config.js'
 import { describeSchedule, nextDue, nextRuns, parseSchedule } from './core/schedule.js'
+import { withoutExecutionState } from './core/scheduler.js'
 import { ScriptError, resolveScriptPath } from './core/scripts.js'
 
 export const name = 'im-cron-tools'
@@ -736,7 +737,7 @@ function createToolRuntime(ctx) {
     async execute(args, exec) {
       const im = runtime()
       const job = await ownJob(im, exec, args.id)
-      await im.scheduler.upsertJob({ ...job, enabled: false })
+      await im.scheduler.upsertJob({ ...withoutExecutionState(job), enabled: false })
       return { ok: true, id: job.id, enabled: false }
     },
   }
@@ -787,7 +788,7 @@ function createToolRuntime(ctx) {
         }
         next.target = { ...job.target, botId: target.botId, targetId: target.targetId, channel: target.channel }
       }
-      await im.scheduler.upsertJob(next)
+      await im.scheduler.upsertJob(withoutExecutionState(next))
       return { ok: true, id: job.id, enabled: true }
     },
   }

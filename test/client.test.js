@@ -306,3 +306,74 @@ test('client: a stored preset outside the catalog is labelled raw and flagged', 
   assert.equal(internals.permissionOptions(catalog, 'gone-preset')
     .some((option) => option.selected === true), false)
 })
+
+test('client: job status and the actions each status offers', () => {
+  assert.equal(internals.jobStatusOf({ enabled: true }), 'active')
+  assert.equal(internals.jobStatusOf({ enabled: false }), 'paused')
+  assert.equal(internals.jobStatusOf({ enabled: true, ended: true }), 'ended')
+  assert.equal(internals.jobStatusOf({ enabled: true, state: 'needs-rebind' }), 'failed')
+  assert.equal(internals.jobStatusOf({ enabled: true, state: 'invalid' }), 'failed')
+
+  assert.deepEqual(internals.jobActions('active'), ['pause', 'delete'])
+  assert.deepEqual(internals.jobActions('paused'), ['resume', 'delete'])
+  assert.deepEqual(internals.jobActions('ended'), ['delete'])
+  assert.deepEqual(internals.jobActions('failed'), ['delete'])
+  assert.deepEqual(internals.jobActions('unknown'), ['delete'])
+})
+
+test('client: jobs group by target then status, newest created first', () => {
+  const job = (id, createdAt, extra = {}) => ({
+    id,
+    createdAt,
+    target: { channel: 'qq', targetId: 't1', label: 'A群' },
+    enabled: true,
+    ...extra,
+  })
+  const groups = internals.groupJobs([
+    job('a1', '2026-11-27T10:00:00.000Z'),
+    job('a2', '2026-11-27T11:00:00.000Z', { enabled: false }),
+    job('a3', '2026-11-27T09:00:00.000Z'),
+    job('a4', '2026-11-27T12:00:00.000Z', { ended: true }),
+    job('a5', '2026-11-27T13:00:00.000Z', { state: 'needs-rebind' }),
+    {
+      id: 'b1',
+      createdAt: '2026-11-27T08:00:00.000Z',
+      target: { channel: 'weixin', targetId: 't2', label: 'B私聊' },
+      enabled: true,
+    },
+  ])
+
+  assert.deepEqual(groups.map((group) => group.label), ['A群', 'B私聊'])
+  assert.equal(groups[0].total, 5)
+  assert.deepEqual(groups[0].statuses.map((bucket) => bucket.status), ['active', 'paused', 'ended', 'failed'])
+  assert.deepEqual(groups[0].statuses[0].jobs.map((entry) => entry.id), ['a1', 'a3'])
+  assert.deepEqual(groups[0].statuses[1].jobs.map((entry) => entry.id), ['a2'])
+  assert.deepEqual(groups[0].statuses[2].jobs.map((entry) => entry.id), ['a4'])
+  assert.deepEqual(groups[0].statuses[3].jobs.map((entry) => entry.id), ['a5'])
+  assert.deepEqual(groups[1].statuses.map((bucket) => bucket.status), ['active'])
+
+  assert.deepEqual(internals.groupJobs([]), [])
+  assert.deepEqual(internals.groupJobs(undefined), [])
+  assert.deepEqual(internals.groupJobs([{ id: 'lonely' }]).map((group) => group.key), [':'])
+})
+
+test('client: row details format relative time, duration, and active hours', () => {
+  const now = Date.parse('2026-11-27T10:00:00.000Z')
+  assert.equal(internals.formatRelative('2026-11-27T10:00:30.000Z', now), '')
+  assert.equal(internals.formatRelative('2026-11-27T10:05:00.000Z', now), '5 分钟后')
+  assert.equal(internals.formatRelative('2026-11-27T09:00:00.000Z', now), '1 小时前')
+  assert.equal(internals.formatRelative('2026-11-29T10:00:00.000Z', now), '2 天后')
+  assert.equal(internals.formatRelative(undefined, now), '')
+
+  assert.equal(internals.formatDuration(0), '')
+  assert.equal(internals.formatDuration(820), '820 ms')
+  assert.equal(internals.formatDuration(1837), '1.8 s')
+  assert.equal(internals.formatDuration(65000), '1 分钟')
+  assert.equal(internals.formatDuration(undefined), '')
+
+  assert.equal(internals.describeActiveHours({ start: 8, end: 22, timezone: 'Asia/Shanghai' }),
+    '仅在 8–22 点（Asia/Shanghai）')
+  assert.equal(internals.describeActiveHours({ start: 8, end: 22 }), '仅在 8–22 点')
+  assert.equal(internals.describeActiveHours(null), '')
+  assert.equal(internals.describeActiveHours({ start: 'x', end: 2 }), '')
+})

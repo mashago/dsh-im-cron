@@ -75,6 +75,39 @@ window.__ModuleLoader__.load({
       menuOptionSelected: { background: 'color-mix(in srgb, CanvasText 9%, transparent)' },
       menuOptionHover: { background: 'var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, CanvasText 6%, transparent))' },
       menuOptionHint: { fontSize: '11px', opacity: 0.6 },
+      targetGroup: {
+        display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '14px',
+        paddingTop: '12px', borderTop: '1px solid var(--dsh-border, #c9ced6)',
+      },
+      targetHead: { fontSize: '13px', fontWeight: 600 },
+      statusGroup: { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' },
+      statusHead: { fontSize: '12px', opacity: 0.7 },
+      jobRow: {
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+        padding: '8px 10px', borderRadius: '8px',
+        border: '1px solid color-mix(in srgb, CanvasText 10%, transparent)',
+      },
+      jobMain: { display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0 },
+      jobTitle: { fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
+      jobMeta: { fontSize: '12px', opacity: 0.7 },
+      jobPreview: {
+        fontSize: '12px', opacity: 0.9, maxWidth: '560px',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      },
+      jobActions: { display: 'flex', gap: '6px', flex: 'none' },
+      badge: {
+        fontSize: '11px', padding: '1px 6px', borderRadius: '999px',
+        background: 'color-mix(in srgb, CanvasText 9%, transparent)', fontWeight: 400,
+      },
+      dangerButton: {
+        padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px',
+        border: '1px solid color-mix(in srgb, #b42318 45%, transparent)',
+        background: 'transparent', color: 'var(--dsh-danger, #b42318)',
+      },
+      smallButton: {
+        padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px',
+        border: '1px solid var(--dsh-border, #c9ced6)', background: 'transparent', color: 'inherit',
+      },
       row: { display: 'flex', alignItems: 'center', gap: '12px' },
       button: { padding: '6px 14px', borderRadius: '6px', border: '1px solid var(--dsh-border, #c9ced6)', cursor: 'pointer' },
       title: { margin: 0, fontSize: '15px' },
@@ -889,6 +922,334 @@ window.__ModuleLoader__.load({
           : null)
     }
 
+    // ---- jobs page --------------------------------------------------------
+    // The button lists every target's jobs through the owner-only Web routes;
+    // grouping and the status→action rule stay here so they can be tested.
+
+    const JOBS_PATH = '/imcron/jobs'
+    const JOBS_ACTION_PATH = '/imcron/jobs/action'
+
+    const JOB_STATUS_ORDER = Object.freeze(['active', 'paused', 'ended', 'failed'])
+    const JOB_STATUS_LABELS = Object.freeze({
+      active: '运行中', paused: '暂停中', ended: '已结束', failed: '异常',
+    })
+    const JOB_STATUS_ACTIONS = Object.freeze({
+      active: ['pause', 'delete'],
+      paused: ['resume', 'delete'],
+      ended: ['delete'],
+      failed: ['delete'],
+    })
+    const JOB_ACTION_LABELS = Object.freeze({ pause: '暂停', resume: '运行', delete: '删除' })
+    const JOB_PAYLOAD_LABELS = Object.freeze({ notify: '提醒', command: '命令', agent: '模型' })
+
+    function jobStatusOf(job) {
+      if (job?.ended === true) return 'ended'
+      if (job?.state === 'needs-rebind' || job?.state === 'invalid') return 'failed'
+      return job?.enabled === false ? 'paused' : 'active'
+    }
+
+    function jobActions(status) {
+      return JOB_STATUS_ACTIONS[status] ?? ['delete']
+    }
+
+    function createdAtOf(job) {
+      const at = Date.parse(job?.createdAt ?? '')
+      return Number.isFinite(at) ? at : 0
+    }
+
+    /** Targets → statuses → rows, newest first; pure, so the dialog stays thin. */
+    function groupJobs(jobs) {
+      const targets = new Map()
+      for (const job of Array.isArray(jobs) ? jobs : []) {
+        const target = job?.target ?? {}
+        const key = `${target.channel ?? ''}:${target.targetId ?? ''}`
+        let group = targets.get(key)
+        if (group === undefined) {
+          group = {
+            key,
+            channel: target.channel ?? '',
+            targetId: target.targetId ?? '',
+            label: target.label ?? '',
+            jobs: [],
+          }
+          targets.set(key, group)
+        }
+        group.jobs.push(job)
+      }
+      return [...targets.values()].map((group) => {
+        const byStatus = new Map()
+        for (const job of group.jobs) {
+          const status = jobStatusOf(job)
+          const bucket = byStatus.get(status) ?? []
+          bucket.push(job)
+          byStatus.set(status, bucket)
+        }
+        return {
+          key: group.key,
+          channel: group.channel,
+          targetId: group.targetId,
+          label: group.label,
+          total: group.jobs.length,
+          statuses: JOB_STATUS_ORDER
+            .filter((status) => byStatus.has(status))
+            .map((status) => ({
+              status,
+              label: JOB_STATUS_LABELS[status],
+              jobs: (byStatus.get(status) ?? []).sort((left, right) =>
+                createdAtOf(right) - createdAtOf(left)
+                || String(left.id ?? '').localeCompare(String(right.id ?? ''))),
+            })),
+        }
+      }).sort((left, right) =>
+        String(left.label).localeCompare(String(right.label))
+        || String(left.targetId).localeCompare(String(right.targetId)))
+    }
+
+    function jobActionErrorText(code) {
+      if (code === 'unauthorized') return '未登录或登录已过期，请用带 token 的链接重新打开'
+      if (code === 'forbidden') return '没有权限（需要 Web 所有者身份）'
+      if (code === 'not-found') return '任务不存在，可能已被删除'
+      if (code === 'job-ended') return '任务已结束，只能删除'
+      if (code === 'job-needs-chat-repair') return '该任务需要在聊天里用 imcron_resume 修复'
+      if (code === 'method-not-allowed') return '接口不接受这个请求'
+      if (code === 'unavailable') return '宿主还没就绪（Web 服务或连接服务未挂载），稍后再试'
+      return undefined
+    }
+
+    async function fetchJobs() {
+      const response = await fetch(JOBS_PATH, {
+        headers: { accept: 'application/json' },
+        credentials: 'same-origin',
+      })
+      const payload = await response.json().catch(() => null)
+      if (response.ok !== true || payload?.ok !== true) {
+        throw new Error(jobActionErrorText(payload?.code)
+          ?? payload?.message ?? `HTTP ${response.status}`)
+      }
+      return Array.isArray(payload.jobs) ? payload.jobs : []
+    }
+
+    async function runJobAction(id, action) {
+      const response = await fetch(JOBS_ACTION_PATH, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ id, action }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (response.ok !== true || payload?.ok !== true) {
+        throw new Error(jobActionErrorText(payload?.code)
+          ?? payload?.message ?? `HTTP ${response.status}`)
+      }
+    }
+
+    function formatWhen(value) {
+      const at = Date.parse(typeof value === 'string' ? value : '')
+      if (!Number.isFinite(at)) return ''
+      return new Date(at).toLocaleString('zh-CN', { hour12: false })
+    }
+
+    /** "3 天后" / "12 分钟前"; empty when the moment is missing or now. */
+    function formatRelative(value, now = Date.now()) {
+      const at = Date.parse(typeof value === 'string' ? value : '')
+      if (!Number.isFinite(at)) return ''
+      const delta = at - now
+      const absolute = Math.abs(delta)
+      if (absolute < 60_000) return ''
+      const minutes = Math.round(absolute / 60_000)
+      const text = minutes < 60 ? `${minutes} 分钟`
+        : minutes < 1440 ? `${Math.round(minutes / 60)} 小时`
+          : `${Math.round(minutes / 1440)} 天`
+      return delta > 0 ? `${text}后` : `${text}前`
+    }
+
+    function formatDuration(ms) {
+      // A notify turn can legitimately take 0 ms; showing "0 ms" reads like a
+      // missing value, so leave the field out instead.
+      if (!Number.isFinite(ms) || ms <= 0) return ''
+      if (ms < 1000) return `${Math.round(ms)} ms`
+      if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`
+      return `${Math.round(ms / 60_000)} 分钟`
+    }
+
+    /** "仅在 08–22 点（Asia/Shanghai）" for a job with an active-hours window. */
+    function describeActiveHours(hours) {
+      if (hours === null || typeof hours !== 'object') return ''
+      const start = Number(hours.start)
+      const end = Number(hours.end)
+      if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > 24) return ''
+      const zone = typeof hours.timezone === 'string' && hours.timezone !== '' ? `（${hours.timezone}）` : ''
+      return `仅在 ${start}–${end} 点${zone}`
+    }
+
+    /** The owner's job list, grouped by target then status. */
+    function JobsDialog({ onClose }) {
+      const [state, setState] = React.useState({ status: 'loading', jobs: [], error: null })
+      const [busy, setBusy] = React.useState(null)
+      const [pendingDelete, setPendingDelete] = React.useState(null)
+      const [actionError, setActionError] = React.useState(null)
+
+      const refresh = async () => {
+        setState((current) => ({ ...current, status: 'loading', error: null }))
+        try {
+          setState({ status: 'ready', jobs: await fetchJobs(), error: null })
+        } catch (error) {
+          setState({ status: 'error', jobs: [], error: String(error?.message ?? error) })
+        }
+      }
+
+      React.useEffect(() => {
+        let alive = true
+        fetchJobs()
+          .then((jobs) => {
+            if (alive) setState({ status: 'ready', jobs, error: null })
+          })
+          .catch((error) => {
+            if (alive) setState({ status: 'error', jobs: [], error: String(error?.message ?? error) })
+          })
+        return () => {
+          alive = false
+        }
+      }, [])
+
+      React.useEffect(() => {
+        const onKey = (event) => {
+          if (event.key === 'Escape') onClose()
+        }
+        document.addEventListener('keydown', onKey)
+        return () => document.removeEventListener('keydown', onKey)
+      }, [onClose])
+
+      const act = async (job, action) => {
+        setActionError(null)
+        setBusy(`${job.id}:${action}`)
+        try {
+          await runJobAction(job.id, action)
+          setPendingDelete(null)
+          await refresh()
+        } catch (error) {
+          setActionError(String(error?.message ?? error))
+        } finally {
+          setBusy(null)
+        }
+      }
+
+      const actionButtons = (job, status) => jobActions(status).map((action) => {
+        if (action === 'delete' && pendingDelete === job.id) {
+          return h(React.Fragment, { key: action },
+            h('button', {
+              type: 'button',
+              style: styles.dangerButton,
+              disabled: busy !== null,
+              onClick: () => act(job, 'delete'),
+            }, '确认删除'),
+            h('button', {
+              type: 'button',
+              style: styles.smallButton,
+              disabled: busy !== null,
+              onClick: () => setPendingDelete(null),
+            }, '取消'))
+        }
+        return h('button', {
+          key: action,
+          type: 'button',
+          style: action === 'delete' ? styles.dangerButton : styles.smallButton,
+          disabled: busy !== null,
+          onClick: () => {
+            setActionError(null)
+            if (action === 'delete') setPendingDelete(job.id)
+            else act(job, action)
+          },
+        }, busy === `${job.id}:${action}` ? '处理中…' : JOB_ACTION_LABELS[action])
+      })
+
+      const row = (job, status) => {
+        const preview = typeof job.payloadPreview === 'string' ? job.payloadPreview.trim() : ''
+        const previewText = preview === '' ? ''
+          : job.payloadKind === 'notify' ? `“${preview}”`
+            : job.payloadKind === 'command' ? `脚本：${preview}`
+              : `提示词：${preview}`
+        const nextRelative = job.nextRunAt === undefined ? '' : formatRelative(job.nextRunAt)
+        const metaLine = [
+          job.schedule,
+          job.nextRunAt === undefined ? '' : `下次 ${formatWhen(job.nextRunAt)}${nextRelative === '' ? '' : `（${nextRelative}）`}`,
+          job.maxRuns === undefined ? '' : `已跑 ${job.runsDone ?? 0}/${job.maxRuns}`,
+        ].filter((part) => part !== '').join(' · ')
+        const lastLine = job.lastRunAt === undefined
+          ? '还没跑过'
+          : [
+            `上次 ${formatWhen(job.lastRunAt)}`,
+            job.lastResult === undefined ? '' : job.lastResult,
+            job.lastDurationMs === undefined ? '' : formatDuration(job.lastDurationMs),
+            job.lastDeliver === undefined ? '' : `投递 ${job.lastDeliver}`,
+            job.lastError === undefined ? '' : `错误 ${job.lastError}`,
+          ].filter((part) => part !== '').join(' · ')
+        const contextLine = [
+          `投递 ${job.deliver ?? 'always'}`,
+          describeActiveHours(job.activeHours),
+          job.createdAt === undefined ? '' : `创建于 ${formatWhen(job.createdAt)}`,
+          job.endedAt === undefined ? '' : `结束于 ${formatWhen(job.endedAt)}`,
+        ].filter((part) => part !== '').join(' · ')
+        return h('div', { key: job.id, style: styles.jobRow },
+          h('div', { style: styles.jobMain },
+            h('div', { style: styles.jobTitle },
+              h('span', null, `⏰ ${job.name || job.id}`),
+              h('span', { style: styles.badge }, JOB_PAYLOAD_LABELS[job.payloadKind] ?? job.payloadKind ?? '未知'),
+              job.inflight === true ? h('span', { style: styles.badge }, '执行中') : null,
+              status === 'failed' && job.state !== undefined
+                ? h('span', { style: styles.badge }, job.state === 'needs-rebind' ? '投递目标失效' : '载荷无效')
+                : null),
+            previewText === '' ? null : h('div', { style: styles.jobPreview, title: previewText }, previewText),
+            h('div', { style: styles.jobMeta }, metaLine),
+            h('div', { style: styles.jobMeta }, lastLine),
+            h('div', { style: styles.jobMeta }, contextLine),
+            h('div', { style: styles.jobMeta }, job.id)),
+          h('div', { style: styles.jobActions }, ...actionButtons(job, status)))
+      }
+
+      const groups = groupJobs(state.jobs)
+      return h('div', { style: styles.overlay, onClick: onClose },
+        h('div', {
+          style: styles.dialog,
+          role: 'dialog',
+          'aria-modal': 'true',
+          'aria-label': '定时任务',
+          onClick: (event) => event.stopPropagation(),
+        },
+        h('div', { style: styles.dialogHead },
+          h('div', { style: styles.row },
+            h('h3', { style: styles.title }, '定时任务'),
+            h('button', {
+              type: 'button',
+              style: styles.smallButton,
+              disabled: state.status === 'loading',
+              onClick: refresh,
+            }, state.status === 'loading' ? '读取中…' : '刷新')),
+          h('button', {
+            type: 'button', 'aria-label': '关闭', title: '关闭', style: styles.close, onClick: onClose,
+          }, '×')),
+        h('p', { style: styles.note }, '全部投递目标的任务，按目标 → 状态分组，同状态内按创建时间倒序。修改后点刷新或重开本窗口。'),
+        state.status === 'error' ? h('p', { style: styles.warn }, `读取失败：${state.error}`) : null,
+        actionError === null ? null : h('p', { style: styles.warn }, actionError),
+        state.status === 'ready' && groups.length === 0 ? h('p', { style: styles.note }, '还没有定时任务。') : null,
+        ...groups.map((group) => h('section', { key: group.key, style: styles.targetGroup },
+          h('div', { style: styles.targetHead },
+            `${group.channel || '未知渠道'} · ${group.label || group.targetId || '未知目标'}`,
+            h('span', { style: styles.hint }, `${group.targetId === '' ? '' : ` · ${group.targetId}`} · ${group.total} 个任务`)),
+          ...group.statuses.map((bucket) => h('div', { key: bucket.status, style: styles.statusGroup },
+            h('div', { style: styles.statusHead }, `${bucket.label}（${bucket.jobs.length}）`),
+            ...bucket.jobs.map((job) => row(job, bucket.status))))))))
+    }
+
+    /** Page head: a button that opens the job list. */
+    function JobsAction({ subject }) {
+      const [open, setOpen] = React.useState(false)
+      if (subject?.pkg?.name !== PACKAGE_NAME) return null
+      return h(React.Fragment, null,
+        h('button', { type: 'button', style: styles.button, onClick: () => setOpen(true) }, '查看定时任务'),
+        open ? h(JobsDialog, { onClose: () => setOpen(false) }) : null)
+    }
+
     return {
       inject: ['slots', 'remote', 'remote.session'],
       apply(ctx) {
@@ -903,6 +1264,11 @@ window.__ModuleLoader__.load({
           name: 'plugins.row.config',
           key: 'dsh-im-cron#im-cron-agent',
         }, AgentSettings))
+        ctx.slots.inject('plugins.detail.actions', () => ctx.slots.register({
+          name: 'plugins.detail.actions',
+          id: 'dsh-im-cron-jobs',
+          order: 30,
+        }, JobsAction))
       },
       /** Test seam: the pure catalog helpers, exercised by test/client.test.js. */
       internals: Object.freeze({
@@ -918,6 +1284,12 @@ window.__ModuleLoader__.load({
         permissionOptions,
         permissionLabel,
         permissionUnknown,
+        jobStatusOf,
+        jobActions,
+        groupJobs,
+        formatRelative,
+        formatDuration,
+        describeActiveHours,
         optionStyle,
       }),
     }

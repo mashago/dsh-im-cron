@@ -33,6 +33,18 @@ function isRunnable(job) {
  * @param {Date} after
  * @param {number} nowMs
  */
+/**
+ * A job copy without the fields a running scheduler owns.
+ *
+ * `upsertJob` keeps the live `lastFiredFor` / `inflight` / `endedAt` when the
+ * incoming copy omits them, so a pause/resume taken from a snapshot cannot
+ * rewind a slot the scheduler just claimed.
+ */
+export function withoutExecutionState(job) {
+  const { lastFiredFor, inflight, endedAt, ...rest } = job
+  return rest
+}
+
 export function collectDueSlots(schedule, after, nowMs) {
   const slots = []
   let cursor = after
